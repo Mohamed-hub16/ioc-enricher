@@ -1,58 +1,58 @@
 # IOC Enricher
 
-A threat intelligence tool for SOC analysts. Enriches IPs, domains, and file hashes by querying free-tier APIs, generates an AI-written analysis paragraph, and stores everything in a searchable web interface accessible to your team.
+Outil de threat intelligence pour analystes SOC. Enrichit des IPs, domaines et hashes en interrogeant des APIs gratuites, génère un paragraphe d'analyse rédigé par IA, et stocke tout dans une interface web consultable par l'équipe.
 
 ---
 
-## Features
+## Fonctionnalités
 
-- **Multi-source enrichment** — AbuseIPDB, VirusTotal, urlscan.io
-- **AI synthesis** — generates a SOC-ready paragraph per IOC via Groq (llama-3.3-70b), in French
-- **Web interface** — browse history, search past IOCs, re-enrich stale data
-- **Smart cache** — results stored in SQLite; IOCs under 7 days old are served instantly
-- **Team access** — read-only for everyone, enrichment requires an approved account
-- **Admin panel** — approve / revoke analyst accounts
-- **CLI mode** — still works as a standalone script for quick offline use
+- **Enrichissement multi-sources** — AbuseIPDB, VirusTotal, urlscan.io
+- **Synthèse IA** — paragraphe SOC en français généré par Groq (llama-3.3-70b)
+- **Interface web** — historique des IOCs, recherche, re-enrichissement
+- **Cache intelligent** — résultats stockés en SQLite ; IOCs de moins de 7 jours servis instantanément
+- **Accès équipe** — lecture publique, enrichissement réservé aux comptes approuvés
+- **Panneau d'administration** — approbation et révocation des comptes analystes
+- **Mode CLI** — fonctionne aussi en script autonome pour un usage rapide
 
 ---
 
-## Supported sources
+## Sources supportées
 
-| Source | IOC types | Free tier |
+| Source | Types d'IOC | Free tier |
 |---|---|---|
-| AbuseIPDB | IP | 1 000 req / day |
-| VirusTotal | IP, domain, hash | 500 req / day |
-| urlscan.io | Domain | 1 000 req / day |
-| Groq | All (AI synthesis) | Free tier available |
+| AbuseIPDB | IP | 1 000 req / jour |
+| VirusTotal | IP, domaine, hash | 500 req / jour |
+| urlscan.io | Domaine | 1 000 req / jour |
+| Groq | Tous (synthèse IA) | Free tier disponible |
 
 ---
 
-## Project structure
+## Structure du projet
 
 ```
-app.py                  # Flask entry point (web app)
-main.py                 # CLI entry point
+app.py                  # Point d'entrée Flask (interface web)
+main.py                 # Point d'entrée CLI
 webapp/
-  __init__.py           # Flask app factory
-  models.py             # SQLAlchemy models (User, IOCRecord)
+  __init__.py           # Factory Flask
+  models.py             # Modèles SQLAlchemy (User, IOCRecord)
   auth.py               # /login  /register  /logout
-  ioc_routes.py         # /  /ioc/<value>  /enrich
+  ioc_routes.py         # /  /ioc/<valeur>  /enrich
   admin_routes.py       # /admin/users  approve  revoke
-  templates/            # Bootstrap 5 dark-themed templates
+  templates/            # Templates Bootstrap 5 dark theme
 src/
-  enrichers/            # One module per API (abuseipdb, virustotal, urlscan)
-  parsers/              # IOC type detection (IP / domain / hash)
-  synthesis/            # Groq AI paragraph generator
-  models.py             # Shared dataclasses (IOC, EnrichmentResult)
-instance/               # SQLite database (git-ignored)
-output/                 # CLI-generated HTML reports (git-ignored)
+  enrichers/            # Un module par API (abuseipdb, virustotal, urlscan)
+  parsers/              # Détection du type d'IOC (IP / domaine / hash)
+  synthesis/            # Générateur de paragraphe IA via Groq
+  models.py             # Dataclasses partagés (IOC, EnrichmentResult)
+instance/               # Base de données SQLite (ignorée par git)
+output/                 # Rapports HTML générés par le CLI (ignorés par git)
 ```
 
 ---
 
-## Setup
+## Installation
 
-### 1. Clone and install dependencies
+### 1. Cloner et installer les dépendances
 
 ```bash
 git clone https://github.com/Mohamed-hub16/ioc-enricher.git
@@ -60,27 +60,27 @@ cd ioc-enricher
 pip install -r requirements.txt
 ```
 
-### 2. Configure environment variables
+### 2. Configurer les variables d'environnement
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your API keys:
+Remplir `.env` avec vos clés :
 
 ```env
-ABUSEIPDB_API_KEY=your_key_here
-VIRUSTOTAL_API_KEY=your_key_here
-URLSCAN_API_KEY=your_key_here
-GROQ_API_KEY=your_key_here
+ABUSEIPDB_API_KEY=votre_clé
+VIRUSTOTAL_API_KEY=votre_clé
+URLSCAN_API_KEY=votre_clé
+GROQ_API_KEY=votre_clé
 
-SECRET_KEY=your_flask_secret_key   # python -c "import secrets; print(secrets.token_hex(32))"
-ADMIN_EMAIL=your@email.com         # this account gets admin rights automatically on first registration
+SECRET_KEY=votre_clé_flask   # python -c "import secrets; print(secrets.token_hex(32))"
+ADMIN_EMAIL=votre@email.com  # ce compte obtient automatiquement les droits admin à l'inscription
 ```
 
-### 3. Get your API keys (all free)
+### 3. Obtenir les clés API (toutes gratuites)
 
-| Service | URL |
+| Service | Lien |
 |---|---|
 | AbuseIPDB | https://www.abuseipdb.com/account/api |
 | VirusTotal | https://www.virustotal.com/gui/my-apikey |
@@ -89,59 +89,59 @@ ADMIN_EMAIL=your@email.com         # this account gets admin rights automaticall
 
 ---
 
-## Web app
+## Interface web
 
 ```bash
 python3 app.py
 # → http://localhost:5000
 ```
 
-**First run:** register with the email set in `ADMIN_EMAIL` — your account is automatically approved as admin.
+**Premier lancement :** inscrivez-vous avec l'email défini dans `ADMIN_EMAIL` — le compte est automatiquement approuvé en tant qu'administrateur.
 
-**For colleagues:** they register at `/register`, you approve them from `/admin/users`.
+**Pour les collègues :** ils s'inscrivent sur `/register`, vous les approuvez depuis `/admin/users`.
 
-### Access levels
+### Niveaux d'accès
 
-| Action | Anonymous | Approved analyst | Admin |
+| Action | Anonyme | Analyste approuvé | Admin |
 |---|---|---|---|
-| Browse IOC history | ✅ | ✅ | ✅ |
-| Search past IOCs | ✅ | ✅ | ✅ |
-| Submit / enrich IOCs | ❌ | ✅ | ✅ |
-| Approve accounts | ❌ | ❌ | ✅ |
+| Consulter l'historique des IOCs | ✅ | ✅ | ✅ |
+| Rechercher dans les IOCs | ✅ | ✅ | ✅ |
+| Soumettre / enrichir un IOC | ❌ | ✅ | ✅ |
+| Approuver des comptes | ❌ | ❌ | ✅ |
 
 ---
 
 ## CLI
 
-The original CLI is still available for quick offline use or scripting:
+Le script original reste disponible pour un usage rapide ou du scripting :
 
 ```bash
-# Single IOC
+# IOC unique
 python3 main.py --ioc 8.8.8.8
 
-# Multiple IOCs inline
+# Plusieurs IOCs en ligne
 python3 main.py --ioc 1.2.3.4 evil.example.com d41d8cd98f00b204e9800998ecf8427e
 
-# From a file (one IOC per line, # lines ignored)
+# Depuis un fichier (un IOC par ligne, lignes # ignorées)
 python3 main.py --file iocs.txt
 
-# Custom output path
-python3 main.py --file iocs.txt --output report.html
+# Chemin de sortie personnalisé
+python3 main.py --file iocs.txt --output rapport.html
 
-# Skip AI synthesis
+# Désactiver la synthèse IA
 python3 main.py --ioc 1.2.3.4 --no-ai
 ```
 
-Reports are saved to `output/<YYYYMMDD_HHMMSS>.html` by default.
+Les rapports sont sauvegardés dans `output/<YYYYMMDD_HHMMSS>.html` par défaut.
 
-### Input file format
+### Format du fichier d'entrée
 
 ```
 # IPs
 185.220.101.45
 1.2.3.4
 
-# Domains
+# Domaines
 phishing.example.com
 
 # Hashes (MD5 / SHA1 / SHA256)
@@ -150,20 +150,11 @@ d41d8cd98f00b204e9800998ecf8427e
 
 ---
 
-## Deploy (Railway — free)
+## Ajouter un nouvel enrichisseur
 
-1. Push the repo to GitHub
-2. Go to [railway.app](https://railway.app) → New Project → Deploy from GitHub
-3. Add all environment variables from `.env`
-4. Railway auto-detects the `Procfile` and deploys
-
----
-
-## Adding a new enricher
-
-1. Create `src/enrichers/<name>.py` with an `enrich(ioc: IOC) -> EnrichmentResult` function
-2. Register it in `src/enrichers/__init__.py` under `ENRICHERS_BY_TYPE`
-3. Add the API key variable to `.env.example`
+1. Créer `src/enrichers/<nom>.py` avec une fonction `enrich(ioc: IOC) -> EnrichmentResult`
+2. L'enregistrer dans `src/enrichers/__init__.py` sous `ENRICHERS_BY_TYPE`
+3. Ajouter la variable de clé API dans `.env.example`
 
 ---
 
