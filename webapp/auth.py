@@ -1,0 +1,65 @@
+import os
+from flask import Blueprint, render_template, redirect, url_for, flash, request
+from flask_login import login_user, logout_user, login_required, current_user
+from webapp import db
+from webapp.models import User
+
+auth_bp = Blueprint("auth", __name__)
+
+
+@auth_bp.route("/login", methods=["GET", "POST"])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for("ioc.index"))
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        user = User.query.filter_by(email=email).first()
+        if not user or not user.check_password(password):
+            flash("Email ou mot de passe incorrect.", "danger")
+        elif not user.is_approved:
+            flash("Votre compte est en attente d'approbation par un administrateur.", "warning")
+        else:
+            login_user(user, remember=True)
+            return redirect(request.args.get("next") or url_for("ioc.index"))
+    return render_template("login.html")
+
+
+@auth_bp.route("/register", methods=["GET", "POST"])
+def register():
+    if current_user.is_authenticated:
+        return redirect(url_for("ioc.index"))
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        if not email or not password:
+            flash("Email et mot de passe requis.", "danger")
+            return render_template("register.html")
+        if len(password) < 8:
+            flash("Le mot de passe doit faire au moins 8 caractères.", "danger")
+            return render_template("register.html")
+        if User.query.filter_by(email=email).first():
+            flash("Cet email est déjà utilisé.", "danger")
+            return render_template("register.html")
+
+        user = User(email=email)
+        user.set_password(password)
+
+        admin_email = os.getenv("ADMIN_EMAIL", "").strip().lower()
+        if User.query.count() == 0 or (admin_email and email == admin_email):
+            user.role = "admin"
+            flash("Compte créé avec les droits administrateur.", "success")
+        else:
+            flash("Inscription envoyée — en attente d'approbation par un administrateur.", "info")
+
+        db.session.add(user)
+        db.session.commit()
+        return redirect(url_for("auth.login"))
+    return render_template("register.html")
+
+
+@auth_bp.route("/logout")
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for("ioc.index"))

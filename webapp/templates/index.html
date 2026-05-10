@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Historique IOCs — IOC Enricher{% endblock %}
+
+{% block content %}
+<div class="row mb-4 align-items-center">
+  <div class="col">
+    <h5 class="mb-3 text-secondary">
+      <i class="bi bi-database me-2"></i>Base de connaissance IOCs
+    </h5>
+    <form method="get" action="{{ url_for('ioc.index') }}" class="d-flex gap-2">
+      <input type="text" name="q" class="form-control ioc-value"
+             placeholder="Rechercher une IP, domaine, hash..."
+             value="{{ q }}">
+      <button type="submit" class="btn btn-outline-info px-3">
+        <i class="bi bi-search"></i>
+      </button>
+      {% if q %}
+      <a href="{{ url_for('ioc.index') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-x-lg"></i>
+      </a>
+      {% endif %}
+    </form>
+  </div>
+  {% if current_user.is_authenticated and current_user.is_approved %}
+  <div class="col-auto mt-3 mt-md-0" style="margin-top: 1.9rem !important;">
+    <a href="{{ url_for('ioc.enrich') }}" class="btn btn-info">
+      <i class="bi bi-plus-circle me-1"></i>Enrichir un IOC
+    </a>
+  </div>
+  {% endif %}
+</div>
+
+{% if records %}
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table table-hover align-middle mb-0">
+      <thead style="background-color: #1c2128; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px;">
+        <tr>
+          <th class="ps-3">IOC</th>
+          <th>Type</th>
+          <th>Sources</th>
+          <th>Enrichi par</th>
+          <th>Date</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in records %}
+        <tr>
+          <td class="ps-3">
+            <a href="{{ url_for('ioc.detail', value=r.value) }}"
+               class="ioc-value text-decoration-none text-light fw-medium">
+              {{ r.value }}
+            </a>
+            {% if r.is_stale %}
+            <span class="badge bg-secondary ms-1 fw-normal" title="Données de plus de 7 jours">
+              stale
+            </span>
+            {% endif %}
+          </td>
+          <td>
+            <span class="badge badge-{{ r.ioc_type }}">{{ r.ioc_type }}</span>
+          </td>
+          <td>
+            {% for res in r.get_results() %}
+              {% if not res['error'] %}
+              <span class="badge bg-dark border me-1" style="font-size: 0.75rem;">
+                {{ res['source'] }}
+              </span>
+              {% endif %}
+            {% endfor %}
+          </td>
+          <td class="text-muted small">{{ r.enriched_by or '—' }}</td>
+          <td class="text-muted small" title="{{ r.enriched_at.strftime('%Y-%m-%d %H:%M UTC') }}">
+            {% if r.age_days == 0 %}Aujourd'hui
+            {% elif r.age_days == 1 %}Hier
+            {% else %}il y a {{ r.age_days }}j
+            {% endif %}
+          </td>
+          <td class="pe-3">
+            <a href="{{ url_for('ioc.detail', value=r.value) }}"
+               class="btn btn-sm btn-outline-secondary">
+              <i class="bi bi-eye"></i>
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% elif q %}
+<div class="text-center py-5 text-muted">
+  <i class="bi bi-search display-5 d-block mb-3"></i>
+  Aucun résultat pour <strong class="ioc-value">{{ q }}</strong>
+  {% if current_user.is_authenticated and current_user.is_approved %}
+  <div class="mt-3">
+    <a href="{{ url_for('ioc.enrich', ioc=q) }}" class="btn btn-info">
+      <i class="bi bi-plus-circle me-1"></i>Enrichir cet IOC
+    </a>
+  </div>
+  {% endif %}
+</div>
+
+{% else %}
+<div class="text-center py-5 text-muted">
+  <i class="bi bi-shield display-5 d-block mb-3"></i>
+  Aucun IOC enrichi pour l'instant.
+  {% if current_user.is_authenticated and current_user.is_approved %}
+  <div class="mt-3">
+    <a href="{{ url_for('ioc.enrich') }}" class="btn btn-info">
+      <i class="bi bi-plus-circle me-1"></i>Enrichir le premier IOC
+    </a>
+  </div>
+  {% elif not current_user.is_authenticated %}
+  <div class="mt-3">
+    <a href="{{ url_for('auth.login') }}" class="btn btn-outline-info btn-sm">
+      Se connecter pour soumettre des IOCs
+    </a>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

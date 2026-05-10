@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Enrichir un IOC — IOC Enricher{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">
+        <h5 class="mb-0">
+          <i class="bi bi-plus-circle text-info me-2"></i>Enrichir un IOC
+        </h5>
+      </div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">
+          Entrez une adresse IP, un nom de domaine ou un hash (MD5 / SHA1 / SHA256).
+        </p>
+        <form method="post" id="enrich-form">
+          <div class="mb-4">
+            <input type="text" name="ioc" class="form-control form-control-lg ioc-value"
+                   placeholder="1.2.3.4  ·  example.com  ·  d41d8cd9..."
+                   value="{{ prefill }}" required autofocus>
+          </div>
+          <div class="d-grid">
+            <button type="submit" class="btn btn-info btn-lg" id="submit-btn">
+              <span id="btn-text">
+                <i class="bi bi-search me-2"></i>Enrichir
+              </span>
+              <span id="btn-loading" class="d-none">
+                <span class="spinner-border spinner-border-sm me-2"></span>
+                Interrogation des sources... (5-15 s)
+              </span>
+            </button>
+          </div>
+        </form>
+        <p class="text-muted small mt-3 mb-0">
+          <i class="bi bi-info-circle me-1"></i>
+          Si l'IOC est déjà en base et a moins de 7 jours, le cache est retourné immédiatement.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.getElementById('enrich-form').addEventListener('submit', function () {
+    document.getElementById('btn-text').classList.add('d-none');
+    document.getElementById('btn-loading').classList.remove('d-none');
+    document.getElementById('submit-btn').disabled = true;
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}{{ record.value }} — IOC Enricher{% endblock %}
+
+{% macro render_val(v) %}
+  {%- if v is mapping -%}
+    {%- for k2, v2 in v.items() -%}
+      {%- if v2 is not none and v2 != '' -%}
+        <div class="ms-2 small">
+          <span class="text-muted">{{ k2 }}</span>: {{ v2 }}
+        </div>
+      {%- endif -%}
+    {%- endfor -%}
+  {%- elif v is iterable and v is not string -%}
+    {%- for item in v -%}
+      {%- if item is mapping -%}
+        <div class="ms-1 mb-1">
+          {%- for ik, iv in item.items() -%}
+            {%- if iv -%}
+              <span class="badge bg-dark border me-1" style="font-size:0.75rem;">
+                {{ ik }}: {{ iv }}
+              </span>
+            {%- endif -%}
+          {%- endfor -%}
+        </div>
+      {%- else -%}
+        <span class="badge bg-secondary me-1">{{ item }}</span>
+      {%- endif -%}
+    {%- endfor -%}
+  {%- else -%}
+    <span class="ioc-value">{{ v }}</span>
+  {%- endif -%}
+{% endmacro %}
+
+{% block content %}
+<!-- Header -->
+<div class="d-flex flex-wrap align-items-center gap-3 mb-2">
+  <a href="{{ url_for('ioc.index') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <h4 class="mb-0 ioc-value">{{ record.value }}</h4>
+  <span class="badge badge-{{ record.ioc_type }} px-3 py-2">{{ record.ioc_type }}</span>
+  {% if record.is_stale %}
+  <span class="badge bg-warning text-dark">
+    <i class="bi bi-clock-history me-1"></i>Données de plus de 7 jours
+  </span>
+  {% endif %}
+</div>
+
+<!-- Meta + re-enrich -->
+<p class="text-muted small mb-4">
+  <i class="bi bi-clock me-1"></i>
+  Enrichi le {{ record.enriched_at.strftime('%d/%m/%Y à %H:%M UTC') }}
+  {% if record.enriched_by %}
+    par <strong>{{ record.enriched_by }}</strong>
+  {% endif %}
+  {% if current_user.is_authenticated and current_user.is_approved %}
+  &nbsp;&middot;&nbsp;
+  <form method="post" action="{{ url_for('ioc.enrich') }}" class="d-inline" id="reenrich-form">
+    <input type="hidden" name="ioc" value="{{ record.value }}">
+    <input type="hidden" name="force" value="1">
+    <button type="submit" class="btn btn-link btn-sm p-0 text-warning text-decoration-none"
+            id="reenrich-btn">
+      <i class="bi bi-arrow-clockwise me-1"></i>Re-enrichir
+    </button>
+  </form>
+  {% endif %}
+</p>
+
+<!-- AI Paragraph -->
+{% if record.paragraph %}
+<div class="card mb-4">
+  <div class="card-header d-flex align-items-center gap-2 py-2">
+    <i class="bi bi-cpu text-info"></i>
+    <strong class="small text-uppercase tracking-wide">Analyse IA (Groq · llama-3.3-70b)</strong>
+  </div>
+  <div class="card-body">
+    <p class="paragraph-box mb-0">{{ record.paragraph }}</p>
+  </div>
+</div>
+{% endif %}
+
+<!-- Source accordions -->
+{% set results = record.get_results() %}
+{% if results %}
+<h6 class="text-secondary text-uppercase mb-3" style="letter-spacing: 0.5px; font-size: 0.8rem;">
+  <i class="bi bi-layers me-1"></i>Données brutes par source
+</h6>
+<div class="accordion" id="srcAccordion">
+  {% for res in results %}
+  <div class="accordion-item mb-2" style="border-radius: 6px; overflow: hidden;">
+    <h2 class="accordion-header">
+      <button class="accordion-button {% if not loop.first %}collapsed{% endif %}"
+              type="button" data-bs-toggle="collapse"
+              data-bs-target="#src{{ loop.index }}">
+        {% if res['error'] %}
+        <i class="bi bi-x-circle text-danger me-2"></i>
+        {% else %}
+        <i class="bi bi-check-circle text-success me-2"></i>
+        {% endif %}
+        <strong>{{ res['source'] }}</strong>
+        <span class="badge {% if res['error'] %}bg-danger{% else %}bg-success{% endif %} ms-2">
+          {% if res['error'] %}erreur{% else %}OK{% endif %}
+        </span>
+      </button>
+    </h2>
+    <div id="src{{ loop.index }}"
+         class="accordion-collapse collapse {% if loop.first %}show{% endif %}">
+      <div class="accordion-body py-2">
+        {% if res['error'] %}
+        <p class="text-danger mb-0">
+          <i class="bi bi-exclamation-triangle me-1"></i>{{ res['error'] }}
+        </p>
+        {% else %}
+        <table class="table table-sm mb-0" style="font-size: 0.875rem;">
+          <tbody>
+            {% for k, v in res['data'].items() %}
+            {% if v is not none and v != '' and v != [] and v != {} %}
+            <tr>
+              <td class="text-muted" style="width: 30%; white-space: nowrap;">{{ k }}</td>
+              <td>{{ render_val(v) }}</td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.getElementById('reenrich-form')?.addEventListener('submit', function() {
+    const btn = document.getElementById('reenrich-btn');
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Re-enrichissement...';
+    btn.disabled = true;
+  });
+</script>
+{% endblock %}
