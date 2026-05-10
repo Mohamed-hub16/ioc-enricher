@@ -106,8 +106,8 @@ def enrich(ioc: IOC) -> EnrichmentResult:
                 "source": ctx.get("source", ""),
                 "title": ctx.get("title", ""),
                 "severity": ctx.get("severity", ""),
-                "details": (ctx.get("details") or "")[:400],
-                "timestamp": (ctx.get("timestamp") or "")[:10],
+                "details": str(ctx.get("details") or "")[:400],
+                "timestamp": str(ctx.get("timestamp") or "")[:10],
             })
 
         # IDS/IPS rules that fired (Suricata, Snort — CVEs, attack patterns)
