@@ -149,13 +149,116 @@ def enrich(ioc: IOC) -> EnrichmentResult:
             "whois": (attrs.get("whois", "") or "")[:500],
         })
     elif ioc.type == "hash":
+        import datetime as _dt
+
+        def _ts(v):
+            if not v:
+                return None
+            try:
+                return _dt.datetime.utcfromtimestamp(int(v)).strftime("%Y-%m-%d")
+            except Exception:
+                return str(v)
+
         data.update({
             "meaningful_name": attrs.get("meaningful_name"),
+            "names": (attrs.get("names") or [])[:10],
             "type_description": attrs.get("type_description"),
             "magic": attrs.get("magic"),
             "sha256": attrs.get("sha256"),
+            "sha1": attrs.get("sha1"),
             "md5": attrs.get("md5"),
             "file_size": attrs.get("size"),
+            "ssdeep": attrs.get("ssdeep"),
+            "tlsh": attrs.get("tlsh"),
+            "vhash": attrs.get("vhash"),
+            "first_submission_date": _ts(attrs.get("first_submission_date")),
+            "last_submission_date": _ts(attrs.get("last_submission_date")),
+            "times_submitted": attrs.get("times_submitted"),
+            "unique_sources": attrs.get("unique_sources"),
         })
+
+        # Code signing
+        sig = attrs.get("signature_info", {})
+        if sig:
+            data["signature_info"] = {k: v for k, v in {
+                "subject": sig.get("subject"),
+                "issuer": sig.get("issuer"),
+                "valid_from": sig.get("valid from"),
+                "valid_to": sig.get("valid to"),
+                "verified": sig.get("verified"),
+                "signers": sig.get("signers"),
+            }.items() if v}
+
+        # PE metadata
+        pe = attrs.get("pe_info", {})
+        if pe:
+            data["pe_compilation_date"] = pe.get("compilation-date") or pe.get("compilation_timestamp")
+            data["pe_imphash"] = pe.get("imphash")
+            sections = pe.get("sections", [])
+            if sections:
+                data["pe_sections"] = [
+                    {"name": s.get("name"), "entropy": s.get("entropy"), "md5": s.get("md5")}
+                    for s in sections[:8]
+                ]
+
+        # Exiftool (CompanyName, ProductName, version…)
+        exif = attrs.get("exiftool", {})
+        if exif:
+            relevant = {f: exif[f] for f in [
+                "CompanyName", "ProductName", "FileVersion", "OriginalFilename",
+                "InternalName", "FileDescription", "LegalCopyright", "ProductVersion",
+                "FileType", "MIMEType",
+            ] if exif.get(f)}
+            if relevant:
+                data["exiftool"] = relevant
+
+        # Popular threat classification
+        tc = attrs.get("popular_threat_classification", {})
+        if tc:
+            data["popular_threat_label"] = tc.get("suggested_threat_label")
+            cats = [c.get("value") for c in tc.get("popular_threat_category", []) if c.get("value")]
+            if cats:
+                data["threat_categories"] = cats
+            names = [n.get("value") for n in tc.get("popular_threat_name", []) if n.get("value")]
+            if names:
+                data["threat_names"] = names
+
+        # Crowdsourced context
+        ctx_items = []
+        for ctx in (attrs.get("crowdsourced_context") or [])[:10]:
+            ctx_items.append({
+                "source": ctx.get("source", ""),
+                "title": ctx.get("title", ""),
+                "severity": ctx.get("severity", ""),
+                "details": str(ctx.get("details") or "")[:400],
+                "timestamp": str(ctx.get("timestamp") or "")[:10],
+            })
+        if ctx_items:
+            data["crowdsourced_context"] = ctx_items
+
+        # YARA rules
+        yara = (attrs.get("crowdsourced_yara_results") or [])[:10]
+        if yara:
+            data["yara_rules"] = [
+                {
+                    "rule_name": y.get("rule_name"),
+                    "ruleset_name": y.get("ruleset_name"),
+                    "description": (y.get("description") or "")[:200],
+                    "source": y.get("source"),
+                }
+                for y in yara
+            ]
+
+        # Sandbox verdicts
+        sb = attrs.get("sandbox_verdicts", {})
+        if sb:
+            data["sandbox_verdicts"] = [
+                {
+                    "sandbox": name,
+                    "category": v.get("category"),
+                    "malware_names": v.get("malware_classification", []),
+                }
+                for name, v in list(sb.items())[:6]
+            ]
 
     return EnrichmentResult(source="VirusTotal", ioc=ioc, data=data)

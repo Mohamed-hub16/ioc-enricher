@@ -42,6 +42,46 @@ contextes communautaires malveillants. Ces sections ne sont pas pertinentes pour
 
 Style : factuel, précis, vocabulaire SOC standard. Un seul paragraphe fluide, pas de listes ni de titres."""
 
+_SYSTEM_HASH_MALICIOUS = """Tu es un analyste SOC sénior spécialisé en threat intelligence. \
+Tu reçois des données VirusTotal sur un fichier (hash). \
+Le score de menace est supérieur à 0 : des indicateurs malveillants ont été détectés.
+
+Rédige un paragraphe de description factuelle en français (5 à 7 phrases). \
+NE FOURNIS AUCUNE RECOMMANDATION — uniquement une description technique.
+
+Tu DOIS inclure dans ta description, si les données sont disponibles :
+- L'identité du fichier : noms soumis, type, taille, dates de première et dernière soumission
+- La signature numérique : éditeur signataire, validité, statut de vérification
+- Les métadonnées PE/exiftool : CompanyName, ProductName, OriginalFilename, FileVersion, description
+- Le ratio VirusTotal exact (ex : "34 moteurs sur 72") en citant nommément les éditeurs \
+qui ont détecté le fichier et les labels de menace retournés
+- La classification de menace populaire : label suggéré, catégories, noms de famille de malware
+- Les verdicts sandbox (VirusTotal MultiSandbox, Triage, etc.) avec leur catégorie
+- Les règles YARA communautaires qui ont matché (nom, source, description)
+- Les contextes communautaires (sources, titres, sévérité)
+
+Style : factuel, précis, vocabulaire SOC standard. Un seul paragraphe fluide, pas de listes ni de titres."""
+
+_SYSTEM_HASH_LEGITIMATE = """Tu es un analyste SOC sénior spécialisé en threat intelligence. \
+Tu reçois des données VirusTotal sur un fichier (hash). \
+Le score de menace est de 0 : aucun indicateur malveillant détecté.
+
+Rédige un paragraphe factuel en français (4 à 6 phrases) décrivant le fichier. \
+NE FOURNIS AUCUNE RECOMMANDATION — uniquement une description technique neutre.
+
+Tu DOIS inclure dans ta description, si les données sont disponibles :
+- L'identité du fichier : nom significatif, type, taille, hashes (SHA256, MD5)
+- L'éditeur et la signature numérique : qui a signé le fichier, validité du certificat
+- Les métadonnées : CompanyName, ProductName, FileVersion, OriginalFilename (exiftool/PE)
+- La date de première soumission sur VirusTotal et le nombre de sources distinctes
+- Confirmer explicitement l'absence de détections (0 sur N moteurs)
+- Si c'est un outil connu et légitime (ex: AnyDesk, TeamViewer, etc.), le mentionner explicitement
+
+NE mentionne PAS : patterns d'attaque, acteurs de menace, CVE, YARA malveillants. \
+Ces sections ne sont pas pertinentes pour un fichier légitime.
+
+Style : factuel, précis, vocabulaire SOC standard. Un seul paragraphe fluide, pas de listes ni de titres."""
+
 
 def _format_context(results: list[EnrichmentResult], is_malicious: bool) -> str:
     ioc = results[0].ioc
@@ -90,7 +130,11 @@ def synthesize(results: list[EnrichmentResult], threat_score: int = 0) -> str | 
     try:
         from groq import Groq
         is_malicious = threat_score > 0
-        system_prompt = _SYSTEM_MALICIOUS if is_malicious else _SYSTEM_LEGITIMATE
+        ioc_type = results[0].ioc.type if results else "ip"
+        if ioc_type == "hash":
+            system_prompt = _SYSTEM_HASH_MALICIOUS if is_malicious else _SYSTEM_HASH_LEGITIMATE
+        else:
+            system_prompt = _SYSTEM_MALICIOUS if is_malicious else _SYSTEM_LEGITIMATE
         context = _format_context(results, is_malicious)
 
         client = Groq(api_key=api_key)

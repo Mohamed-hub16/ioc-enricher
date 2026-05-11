@@ -53,10 +53,12 @@ def create_app() -> Flask:
     from .auth import auth_bp
     from .ioc_routes import ioc_bp
     from .admin_routes import admin_bp
+    from .deploy_routes import deploy_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(ioc_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(deploy_bp)
 
     with app.app_context():
         db.create_all()
