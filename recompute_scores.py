@@ -11,31 +11,7 @@ load_dotenv()
 
 from webapp import create_app, db
 from webapp.models import IOCRecord
-
-
-def _compute_threat_score(raw_results: list[dict]) -> int:
-    """50% AbuseIPDB confidence + 50% VirusTotal detection ratio → 0-100."""
-    abuse_score = None
-    vt_score = None
-
-    for res in raw_results:
-        if res.get("error"):
-            continue
-        data = res.get("data", {})
-        if res["source"] == "AbuseIPDB":
-            abuse_score = data.get("abuse_confidence_score", 0) or 0
-        elif res["source"] == "VirusTotal":
-            malicious = data.get("malicious", 0) or 0
-            total = data.get("total_engines", 0) or 0
-            vt_score = round(malicious / total * 100) if total > 0 else 0
-
-    if abuse_score is not None and vt_score is not None:
-        return min(100, round(abuse_score * 0.5 + vt_score * 0.5))
-    if abuse_score is not None:
-        return min(100, int(abuse_score))
-    if vt_score is not None:
-        return min(100, int(vt_score))
-    return 0
+from webapp.ioc_routes import _compute_threat_score
 
 
 def main():
