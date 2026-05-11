@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Mes clés API — IOC Enricher{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-7">
+
+    <div class="d-flex align-items-center gap-3 mb-4">
+      <a href="{{ url_for('ioc.index') }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i>
+      </a>
+      <div>
+        <h5 class="mb-0"><i class="bi bi-key me-2 text-warning"></i>Mes clés API</h5>
+        <p class="text-muted small mb-0">
+          Vos clés sont stockées chiffrées en AES-128-GCM. Elles ne sont jamais affichées en clair.
+        </p>
+      </div>
+    </div>
+
+    <form method="post" action="{{ url_for('auth.api_keys') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <!-- VirusTotal -->
+      <div class="card mb-3">
+        <div class="card-body">
+          <label class="form-label fw-semibold">
+            VirusTotal API Key
+            <span class="badge bg-danger ms-1" style="font-size:0.7rem;">Obligatoire</span>
+            {% if current_user.virustotal_key_enc %}
+            <span class="badge bg-success ms-1" style="font-size:0.7rem;">
+              <i class="bi bi-check-lg"></i> Configurée
+            </span>
+            {% endif %}
+          </label>
+          <input type="password" name="virustotal_key" class="form-control font-monospace"
+                 placeholder="{% if current_user.virustotal_key_enc %}Laisser vide pour ne pas modifier{% else %}Votre clé VirusTotal{% endif %}"
+                 autocomplete="new-password">
+          <div class="form-text text-muted">
+            Utilisée pour tous les types d'IOC (IP, domaine, hash).
+          </div>
+        </div>
+      </div>
+
+      <!-- AbuseIPDB -->
+      <div class="card mb-3">
+        <div class="card-body">
+          <label class="form-label fw-semibold">
+            AbuseIPDB API Key
+            <span class="badge bg-secondary ms-1" style="font-size:0.7rem;">Optionnelle</span>
+            {% if current_user.abuseipdb_key_enc %}
+            <span class="badge bg-success ms-1" style="font-size:0.7rem;">
+              <i class="bi bi-check-lg"></i> Configurée
+            </span>
+            {% endif %}
+          </label>
+          <input type="password" name="abuseipdb_key" class="form-control font-monospace"
+                 placeholder="{% if current_user.abuseipdb_key_enc %}Laisser vide pour ne pas modifier{% else %}Votre clé AbuseIPDB{% endif %}"
+                 autocomplete="new-password">
+          <div class="form-text text-muted">
+            Utilisée pour l'enrichissement des adresses IP.
+          </div>
+        </div>
+      </div>
+
+      <!-- urlscan.io -->
+      <div class="card mb-3">
+        <div class="card-body">
+          <label class="form-label fw-semibold">
+            urlscan.io API Key
+            <span class="badge bg-secondary ms-1" style="font-size:0.7rem;">Optionnelle</span>
+            {% if current_user.urlscan_key_enc %}
+            <span class="badge bg-success ms-1" style="font-size:0.7rem;">
+              <i class="bi bi-check-lg"></i> Configurée
+            </span>
+            {% endif %}
+          </label>
+          <input type="password" name="urlscan_key" class="form-control font-monospace"
+                 placeholder="{% if current_user.urlscan_key_enc %}Laisser vide pour ne pas modifier{% else %}Votre clé urlscan.io{% endif %}"
+                 autocomplete="new-password">
+          <div class="form-text text-muted">
+            Utilisée pour les IP et domaines.
+          </div>
+        </div>
+      </div>
+
+      <!-- Groq -->
+      <div class="card mb-4">
+        <div class="card-body">
+          <label class="form-label fw-semibold">
+            Groq API Key
+            <span class="badge bg-secondary ms-1" style="font-size:0.7rem;">Optionnelle</span>
+            {% if current_user.groq_key_enc %}
+            <span class="badge bg-success ms-1" style="font-size:0.7rem;">
+              <i class="bi bi-check-lg"></i> Configurée
+            </span>
+            {% endif %}
+          </label>
+          <input type="password" name="groq_key" class="form-control font-monospace"
+                 placeholder="{% if current_user.groq_key_enc %}Laisser vide pour ne pas modifier{% else %}Votre clé Groq (synthèse IA){% endif %}"
+                 autocomplete="new-password">
+          <div class="form-text text-muted">
+            Utilisée pour générer le paragraphe d'analyse IA.
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-warning">
+          <i class="bi bi-floppy me-1"></i>Enregistrer les clés
+        </button>
+        <a href="{{ url_for('ioc.index') }}" class="btn btn-outline-secondary">Annuler</a>
+      </div>
+    </form>
+
+  </div>
+</div>
+{% endblock %}

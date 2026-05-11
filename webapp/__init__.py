@@ -78,6 +78,14 @@ def create_app() -> Flask:
             db.session.commit()
         except Exception:
             db.session.rollback()
+        # Migration: add encrypted API key columns to users table
+        for _col in ["virustotal_key_enc", "abuseipdb_key_enc", "urlscan_key_enc", "groq_key_enc"]:
+            try:
+                db.session.execute(db.text(f"ALTER TABLE users ADD COLUMN {_col} TEXT"))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+
         # Migration: clamp any out-of-range scores left by the old formula
         db.session.execute(db.text(
             "UPDATE ioc_records SET threat_score = 100 WHERE threat_score > 100"

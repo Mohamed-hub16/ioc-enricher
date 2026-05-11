@@ -18,8 +18,8 @@ _CATEGORIES = {
 }
 
 
-def enrich(ioc: IOC) -> EnrichmentResult:
-    api_key = os.getenv("ABUSEIPDB_API_KEY", "")
+def enrich(ioc: IOC, keys: dict | None = None) -> EnrichmentResult:
+    api_key = (keys or {}).get("ABUSEIPDB_API_KEY") or os.getenv("ABUSEIPDB_API_KEY", "")
     if not api_key:
         return EnrichmentResult(source="AbuseIPDB", ioc=ioc, error="ABUSEIPDB_API_KEY not set")
 

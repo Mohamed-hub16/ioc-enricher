@@ -76,6 +76,31 @@ def register():
     return render_template("register.html")
 
 
+@auth_bp.route("/settings/api-keys", methods=["GET", "POST"])
+@login_required
+def api_keys():
+    if not current_user.is_approved:
+        flash("Votre compte n'est pas encore approuvé.", "warning")
+        return redirect(url_for("ioc.index"))
+
+    if request.method == "POST":
+        vt      = request.form.get("virustotal_key", "").strip()
+        abuse   = request.form.get("abuseipdb_key", "").strip()
+        urlscan = request.form.get("urlscan_key", "").strip()
+        groq    = request.form.get("groq_key", "").strip()
+
+        if not vt and not current_user.virustotal_key_enc:
+            flash("La clé VirusTotal est obligatoire.", "danger")
+            return render_template("api_keys.html")
+
+        current_user.set_api_keys(vt=vt, abuse=abuse, urlscan=urlscan, groq=groq)
+        db.session.commit()
+        flash("Clés API enregistrées avec succès.", "success")
+        return redirect(url_for("ioc.enrich"))
+
+    return render_template("api_keys.html")
+
+
 @auth_bp.route("/logout")
 @login_required
 def logout():

@@ -58,7 +58,7 @@ def _all_sources_failed(raw_results: list[dict]) -> bool:
     return bool(raw_results) and all(res.get("error") for res in raw_results)
 
 
-def _enrich_ioc(value: str) -> tuple[str, list[dict], str | None]:
+def _enrich_ioc(value: str, keys: dict | None = None) -> tuple[str, list[dict], str | None, int]:
     iocs, _ = parse_iocs([value])
     if not iocs:
         raise ValueError(f"IOC non reconnu : {value!r}")
@@ -68,10 +68,11 @@ def _enrich_ioc(value: str) -> tuple[str, list[dict], str | None]:
     if not enrichers:
         raise ValueError(f"Aucun enrichisseur disponible pour le type '{ioc.type}'")
 
-    result_objects = [fn(ioc) for fn in enrichers]
+    result_objects = [fn(ioc, keys=keys) for fn in enrichers]
     raw = [{"source": r.source, "data": r.data, "error": r.error} for r in result_objects]
     threat_score = _compute_threat_score(raw)
-    paragraph = groq_synthesizer.synthesize(result_objects, threat_score) if os.getenv("GROQ_API_KEY") else None
+    groq_key = (keys or {}).get("GROQ_API_KEY", "") or os.getenv("GROQ_API_KEY", "")
+    paragraph = groq_synthesizer.synthesize(result_objects, threat_score, groq_key=groq_key) if groq_key else None
     return ioc.type, raw, paragraph, threat_score
 
 
@@ -79,14 +80,22 @@ def _enrich_ioc(value: str) -> tuple[str, list[dict], str | None]:
 def index():
     q = request.args.get("q", "").strip()
     filt = request.args.get("filter", "all")  # all | malicious | legitimate
+    sort = request.args.get("sort", "date")   # date | score | views
 
-    query = IOCRecord.query.order_by(IOCRecord.enriched_at.desc())
+    query = IOCRecord.query
     if q:
         query = query.filter(IOCRecord.value.ilike(f"%{q}%"))
     if filt == "malicious":
         query = query.filter(IOCRecord.threat_score > 0)
     elif filt == "legitimate":
         query = query.filter(IOCRecord.threat_score == 0)
+
+    if sort == "score":
+        query = query.order_by(IOCRecord.threat_score.desc())
+    elif sort == "views":
+        query = query.order_by(IOCRecord.view_count.desc())
+    else:
+        query = query.order_by(IOCRecord.enriched_at.desc())
 
     records = query.limit(100).all()
 
@@ -96,7 +105,7 @@ def index():
         "legitimate": IOCRecord.query.filter(IOCRecord.threat_score == 0).count(),
     }
 
-    return render_template("index.html", records=records, q=q, filt=filt, counts=counts)
+    return render_template("index.html", records=records, q=q, filt=filt, sort=sort, counts=counts)
 
 
 @ioc_bp.route("/ioc/<path:value>")
@@ -118,6 +127,11 @@ def enrich():
         return redirect(url_for("ioc.index"))
 
     if request.method == "POST":
+        # Analysts must have configured their own API keys
+        if not current_user.is_admin and not current_user.has_api_keys:
+            flash("Vous devez d'abord configurer vos clés API.", "warning")
+            return redirect(url_for("auth.api_keys"))
+
         value = request.form.get("ioc", "").strip()
         force = request.form.get("force") == "1"
 
@@ -151,8 +165,10 @@ def enrich():
             )
             return redirect(url_for("ioc.detail", value=value))
 
+        keys = current_user.get_api_keys() if not current_user.is_admin else None
+
         try:
-            ioc_type, raw, paragraph, threat_score = _enrich_ioc(value)
+            ioc_type, raw, paragraph, threat_score = _enrich_ioc(value, keys=keys)
         except ValueError as exc:
             flash(str(exc), "danger")
             return render_template("enrich.html", prefill=value)

@@ -4,7 +4,7 @@ from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 from webapp import db
 
-STALE_DAYS = 7
+STALE_DAYS = 14
 
 
 class User(UserMixin, db.Model):
@@ -15,6 +15,12 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(256), nullable=False)
     role = db.Column(db.String(20), default="pending")  # admin | analyst | pending
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # API keys stored AES-128-GCM encrypted
+    virustotal_key_enc = db.Column(db.Text, nullable=True)
+    abuseipdb_key_enc  = db.Column(db.Text, nullable=True)
+    urlscan_key_enc    = db.Column(db.Text, nullable=True)
+    groq_key_enc       = db.Column(db.Text, nullable=True)
 
     def set_password(self, password: str) -> None:
         self.password_hash = generate_password_hash(password)
@@ -29,6 +35,31 @@ class User(UserMixin, db.Model):
     @property
     def is_admin(self) -> bool:
         return self.role == "admin"
+
+    @property
+    def has_api_keys(self) -> bool:
+        """True if the user has at minimum the VirusTotal key configured."""
+        return bool(self.virustotal_key_enc)
+
+    def set_api_keys(self, vt: str = "", abuse: str = "", urlscan: str = "", groq: str = "") -> None:
+        from src.crypto import encrypt
+        if vt:
+            self.virustotal_key_enc = encrypt(vt)
+        if abuse:
+            self.abuseipdb_key_enc = encrypt(abuse)
+        if urlscan:
+            self.urlscan_key_enc = encrypt(urlscan)
+        if groq:
+            self.groq_key_enc = encrypt(groq)
+
+    def get_api_keys(self) -> dict:
+        from src.crypto import decrypt
+        return {
+            "VIRUSTOTAL_API_KEY": decrypt(self.virustotal_key_enc or ""),
+            "ABUSEIPDB_API_KEY":  decrypt(self.abuseipdb_key_enc or ""),
+            "URLSCAN_API_KEY":    decrypt(self.urlscan_key_enc or ""),
+            "GROQ_API_KEY":       decrypt(self.groq_key_enc or ""),
+        }
 
 
 class IOCRecord(db.Model):

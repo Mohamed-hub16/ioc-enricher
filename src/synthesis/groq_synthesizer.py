@@ -123,8 +123,8 @@ def _format_context(results: list[EnrichmentResult], is_malicious: bool) -> str:
     return "\n".join(lines)
 
 
-def synthesize(results: list[EnrichmentResult], threat_score: int = 0) -> str | None:
-    api_key = os.getenv("GROQ_API_KEY")
+def synthesize(results: list[EnrichmentResult], threat_score: int = 0, groq_key: str = "") -> str | None:
+    api_key = groq_key or os.getenv("GROQ_API_KEY")
     if not api_key:
         return None
     try:

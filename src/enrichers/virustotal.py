@@ -49,8 +49,8 @@ def _get_related_files(ip: str, api_key: str) -> list[dict]:
         return []
 
 
-def enrich(ioc: IOC) -> EnrichmentResult:
-    api_key = os.getenv("VIRUSTOTAL_API_KEY", "")
+def enrich(ioc: IOC, keys: dict | None = None) -> EnrichmentResult:
+    api_key = (keys or {}).get("VIRUSTOTAL_API_KEY") or os.getenv("VIRUSTOTAL_API_KEY", "")
     if not api_key:
         return EnrichmentResult(source="VirusTotal", ioc=ioc, error="VIRUSTOTAL_API_KEY not set")
 

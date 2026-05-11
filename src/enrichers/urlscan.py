@@ -8,7 +8,7 @@ _BASE = "https://urlscan.io/api/v1"
 _TIMEOUT = 15.0
 
 
-def enrich(ioc: IOC) -> EnrichmentResult:
+def enrich(ioc: IOC, keys: dict | None = None) -> EnrichmentResult:
     if ioc.type == "ip":
         query = f"ip:{ioc.value}"
     elif ioc.type == "domain":
@@ -17,7 +17,7 @@ def enrich(ioc: IOC) -> EnrichmentResult:
         return EnrichmentResult(source="urlscan.io", ioc=ioc, error=f"Unsupported type: {ioc.type}")
 
     headers: dict[str, str] = {}
-    api_key = os.getenv("URLSCAN_API_KEY", "")
+    api_key = (keys or {}).get("URLSCAN_API_KEY") or os.getenv("URLSCAN_API_KEY", "")
     if api_key:
         headers["API-Key"] = api_key
 
