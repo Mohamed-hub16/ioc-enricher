@@ -583,27 +583,26 @@
             group: ['high','critical'].includes(c.severity)?'threat':'tag' }), 'context'));
         }
 
-        if (r.source === 'Shodan') {
-          const services = d.services||[];
-          if (services.length) {
-            services.slice(0,8).forEach(svc => {
-              const lbl = svc.port+(svc.product?' · '+trunc(svc.product,11):'/'+(svc.transport||'tcp'));
-              addEdge(0, newNode({ label: lbl,
-                title: 'Port: '+svc.port+(svc.product?'\nProduit: '+svc.product:'')+(svc.version?'\nVersion: '+svc.version:''),
-                group: 'port' }), 'service');
-            });
-          } else {
-            (d.ports||[]).slice(0,6).forEach(p => addEdge(0, newNode({ label:'⚡ '+p, title:'Port '+p+' ouvert', group:'port' }), 'port'));
+        if (r.source === 'ip-api.com') {
+          if (d.country) {
+            const geo = d.city ? d.city + ', ' + d.country : d.country;
+            addEdge(0, newNode({ label: geo, title: 'Localisation — ip-api.com', group: 'geo' }), 'localisation');
           }
-          (d.hostnames || []).slice(0, 4).forEach(h => addEdge(0, newNode({ label: trunc(h, 22), title: 'Hostname: ' + h, group: 'hostname' }), 'hostname'));
-          (d.vulns || []).slice(0, 5).forEach(c => addEdge(0, newNode({ label: '⚠️ ' + c, title: 'Vulnérabilité Shodan: ' + c, group: 'cve' }), 'exposé à'));
-          (d.subdomains || []).slice(0, 8).forEach(s => addEdge(0, newNode({ label: trunc(s, 22), title: 'Sous-domaine (Shodan)', group: 'subdomain' }), 'sous-domaine'));
-          (d.dns_records || []).filter(rec => rec.type === 'A').slice(0, 4).forEach(rec => {
-            const lbl = (rec.subdomain !== '@' ? rec.subdomain + '.' : '') + IOC_VALUE;
-            addEdge(0, newNode({ label: '🌐 ' + rec.value, title: lbl + ' → ' + rec.value, group: 'ip_node' }), 'A (' + rec.subdomain + ')');
-          });
-          if (d.org && !d.org.startsWith('AS') && nodesArr.every(n => n.title !== d.org)) {
-            addEdge(0, newNode({ label: trunc(d.org, 22), title: 'Organisation (Shodan)', group: 'network' }), 'org');
+          if (d.as_name || d.asn) {
+            addEdge(0, newNode({
+              label: trunc(d.as_name || d.asn, 22),
+              title: (d.asn || '') + (d.as_name ? ' — ' + d.as_name : ''),
+              group: 'network'
+            }), 'ASN');
+          }
+          if (d.isp && d.isp !== d.as_name) {
+            addEdge(0, newNode({ label: trunc(d.isp, 22), title: 'ISP: ' + d.isp, group: 'network' }), 'ISP');
+          }
+          if (d.network_type) {
+            addEdge(0, newNode({ label: d.network_type, title: 'Type de réseau', group: 'tag' }), 'type');
+          }
+          if (d.reverse_dns) {
+            addEdge(0, newNode({ label: trunc(d.reverse_dns, 22), title: 'Reverse DNS: ' + d.reverse_dns, group: 'hostname' }), 'PTR');
           }
         }
 
