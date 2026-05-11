@@ -70,32 +70,35 @@
 {% if records %}
 <div class="card">
   <div class="card-body p-0">
-    <table class="table table-hover align-middle mb-0">
+    <table class="table table-hover align-middle mb-0" style="table-layout: fixed; width: 100%;">
       <thead style="background-color: #1c2128; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px;">
         <tr>
-          <th class="ps-3">IOC</th>
-          <th>Type</th>
-          <th>Score</th>
+          <th class="ps-3" style="width: 26%;">IOC</th>
+          <th style="width: 72px;">Type</th>
+          <th style="width: 115px;">Score</th>
           <th>Sources</th>
-          <th>Enrichi par</th>
-          <th>Date</th>
-          <th title="Nombre de consultations de la fiche">Vues</th>
-          <th></th>
+          <th style="width: 120px;">Enrichi par</th>
+          <th style="width: 88px;">Date</th>
+          <th style="width: 55px;" title="Nombre de consultations de la fiche">Vues</th>
+          <th style="width: 48px;"></th>
         </tr>
       </thead>
       <tbody>
         {% for r in records %}
         <tr>
-          <td class="ps-3">
-            <a href="{{ url_for('ioc.detail', value=r.value) }}"
-               class="ioc-value text-decoration-none text-light fw-medium">
-              {{ r.value }}
-            </a>
-            {% if r.is_stale %}
-            <span class="badge bg-secondary ms-1 fw-normal" title="Données de plus de 7 jours">
-              stale
-            </span>
-            {% endif %}
+          <td class="ps-3" style="overflow: hidden; max-width: 0;">
+            <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              <a href="{{ url_for('ioc.detail', value=r.value) }}"
+                 class="ioc-value text-decoration-none text-light fw-medium"
+                 title="{{ r.value }}">
+                {{ r.value }}
+              </a>
+              {% if r.is_stale %}
+              <span class="badge bg-secondary ms-1 fw-normal" title="Données de plus de 7 jours">
+                stale
+              </span>
+              {% endif %}
+            </div>
           </td>
           <td>
             <span class="badge badge-{{ r.ioc_type }}">{{ r.ioc_type }}</span>

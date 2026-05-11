@@ -30,9 +30,10 @@ def _is_private_ioc(value: str, ioc_type: str) -> bool:
 
 
 def _compute_threat_score(raw_results: list[dict]) -> int:
-    """Returns a 0-100 threat score: 50% AbuseIPDB confidence + 50% VirusTotal detection ratio."""
+    """0-100 threat score: AbuseIPDB + VirusTotal + MXToolBox blacklist bonus."""
     abuse_score = None
     vt_score = None
+    bl_bonus = 0
 
     for res in raw_results:
         if res.get("error"):
@@ -44,14 +45,20 @@ def _compute_threat_score(raw_results: list[dict]) -> int:
             malicious = data.get("malicious", 0) or 0
             total = data.get("total_engines", 0) or 0
             vt_score = round(malicious / total * 100) if total > 0 else 0
+        elif res["source"] == "MXToolBox":
+            bl_count = len(data.get("blacklisted_on") or [])
+            bl_bonus = min(20, bl_count * 4)
 
     if abuse_score is not None and vt_score is not None:
-        return min(100, round(abuse_score * 0.5 + vt_score * 0.5))
-    if abuse_score is not None:
-        return min(100, int(abuse_score))
-    if vt_score is not None:
-        return min(100, int(vt_score))
-    return 0
+        base = round(abuse_score * 0.5 + vt_score * 0.5)
+    elif abuse_score is not None:
+        base = int(abuse_score)
+    elif vt_score is not None:
+        base = int(vt_score)
+    else:
+        base = 0
+
+    return min(100, base + bl_bonus)
 
 
 def _all_sources_failed(raw_results: list[dict]) -> bool:
@@ -116,7 +123,8 @@ def detail(value: str):
     record = IOCRecord.query.filter_by(value=value).first_or_404()
     record.view_count = (record.view_count or 0) + 1
     db.session.commit()
-    return render_template("ioc_detail.html", record=record)
+    results = record.get_results()
+    return render_template("ioc_detail.html", record=record, results=results)
 
 
 @ioc_bp.route("/enrich", methods=["GET", "POST"])

@@ -21,6 +21,8 @@ class User(UserMixin, db.Model):
     abuseipdb_key_enc  = db.Column(db.Text, nullable=True)
     urlscan_key_enc    = db.Column(db.Text, nullable=True)
     groq_key_enc       = db.Column(db.Text, nullable=True)
+    shodan_key_enc     = db.Column(db.Text, nullable=True)
+    mxtoolbox_key_enc  = db.Column(db.Text, nullable=True)
 
     def set_password(self, password: str) -> None:
         self.password_hash = generate_password_hash(password)
@@ -41,16 +43,15 @@ class User(UserMixin, db.Model):
         """True if the user has at minimum the VirusTotal key configured."""
         return bool(self.virustotal_key_enc)
 
-    def set_api_keys(self, vt: str = "", abuse: str = "", urlscan: str = "", groq: str = "") -> None:
+    def set_api_keys(self, vt: str = "", abuse: str = "", urlscan: str = "",
+                     groq: str = "", shodan: str = "", mxtoolbox: str = "") -> None:
         from src.crypto import encrypt
-        if vt:
-            self.virustotal_key_enc = encrypt(vt)
-        if abuse:
-            self.abuseipdb_key_enc = encrypt(abuse)
-        if urlscan:
-            self.urlscan_key_enc = encrypt(urlscan)
-        if groq:
-            self.groq_key_enc = encrypt(groq)
+        if vt:        self.virustotal_key_enc = encrypt(vt)
+        if abuse:     self.abuseipdb_key_enc  = encrypt(abuse)
+        if urlscan:   self.urlscan_key_enc    = encrypt(urlscan)
+        if groq:      self.groq_key_enc       = encrypt(groq)
+        if shodan:    self.shodan_key_enc      = encrypt(shodan)
+        if mxtoolbox: self.mxtoolbox_key_enc   = encrypt(mxtoolbox)
 
     def get_api_keys(self) -> dict:
         from src.crypto import decrypt
@@ -59,6 +60,8 @@ class User(UserMixin, db.Model):
             "ABUSEIPDB_API_KEY":  decrypt(self.abuseipdb_key_enc or ""),
             "URLSCAN_API_KEY":    decrypt(self.urlscan_key_enc or ""),
             "GROQ_API_KEY":       decrypt(self.groq_key_enc or ""),
+            "SHODAN_API_KEY":     decrypt(self.shodan_key_enc or ""),
+            "MXTOOLBOX_API_KEY":  decrypt(self.mxtoolbox_key_enc or ""),
         }
 
 

@@ -104,6 +104,48 @@
         </div>
       </div>
 
+      <!-- Shodan -->
+      <div class="card mb-3">
+        <div class="card-body">
+          <label class="form-label fw-semibold">
+            Shodan API Key
+            <span class="badge bg-secondary ms-1" style="font-size:0.7rem;">Optionnelle</span>
+            {% if current_user.shodan_key_enc %}
+            <span class="badge bg-success ms-1" style="font-size:0.7rem;">
+              <i class="bi bi-check-lg"></i> Configurée
+            </span>
+            {% endif %}
+          </label>
+          <input type="password" name="shodan_key" class="form-control font-monospace"
+                 placeholder="{% if current_user.shodan_key_enc %}Laisser vide pour ne pas modifier{% else %}Votre clé Shodan{% endif %}"
+                 autocomplete="new-password">
+          <div class="form-text text-muted">
+            Ports ouverts, CVEs, bannières de services, DNS (IP et domaines).
+          </div>
+        </div>
+      </div>
+
+      <!-- MXToolBox -->
+      <div class="card mb-4">
+        <div class="card-body">
+          <label class="form-label fw-semibold">
+            MXToolBox API Key
+            <span class="badge bg-secondary ms-1" style="font-size:0.7rem;">Optionnelle</span>
+            {% if current_user.mxtoolbox_key_enc %}
+            <span class="badge bg-success ms-1" style="font-size:0.7rem;">
+              <i class="bi bi-check-lg"></i> Configurée
+            </span>
+            {% endif %}
+          </label>
+          <input type="password" name="mxtoolbox_key" class="form-control font-monospace"
+                 placeholder="{% if current_user.mxtoolbox_key_enc %}Laisser vide pour ne pas modifier{% else %}Votre clé MXToolBox{% endif %}"
+                 autocomplete="new-password">
+          <div class="form-text text-muted">
+            Vérification blacklists, enregistrements MX et TXT/SPF (IP et domaines).
+          </div>
+        </div>
+      </div>
+
       <div class="d-flex gap-2">
         <button type="submit" class="btn btn-warning">
           <i class="bi bi-floppy me-1"></i>Enregistrer les clés

@@ -37,7 +37,7 @@
   <a href="{{ url_for('ioc.index') }}" class="btn btn-sm btn-outline-secondary">
     <i class="bi bi-arrow-left"></i>
   </a>
-  <h4 class="mb-0 ioc-value">{{ record.value }}</h4>
+  <h4 class="mb-0 ioc-value" style="word-break: break-all; max-width: 100%;">{{ record.value }}</h4>
   <span class="badge badge-{{ record.ioc_type }} px-3 py-2">{{ record.ioc_type }}</span>
   {% if record.is_malicious %}
   <span class="badge bg-danger px-3 py-2">
@@ -160,8 +160,42 @@
 </div>
 {% endif %}
 
+<!-- Relationship Graph -->
+<div class="card mb-4">
+  <div class="card-header d-flex align-items-center justify-content-between py-2">
+    <div class="d-flex align-items-center gap-2">
+      <i class="bi bi-diagram-3 text-info"></i>
+      <strong class="small text-uppercase" style="letter-spacing:.5px">Cartographie des relations</strong>
+    </div>
+    <button class="btn btn-sm btn-outline-secondary" id="graph-toggle">
+      <i class="bi bi-chevron-up" id="graph-icon"></i>
+    </button>
+  </div>
+  <div id="graph-wrap">
+    <div id="ioc-graph" style="width:100%;height:{% if record.ioc_type == 'hash' %}560{% else %}430{% endif %}px;background:#0d1117;border-radius:0 0 6px 6px;"></div>
+    <div id="graph-legend" class="d-flex flex-wrap gap-3 px-3 py-2" style="background:#0d1117;border-top:1px solid #30363d;font-size:.8rem;color:#8b949e;border-radius:0 0 6px 6px;">
+      {% if record.ioc_type == 'hash' %}
+      <span><span style="display:inline-block;width:10px;height:10px;background:#da3633;transform:rotate(45deg);margin-right:6px;"></span>IOC central</span>
+      <span><span style="display:inline-block;width:22px;height:12px;background:#1e2a3a;border:1.5px solid #6741a8;border-radius:2px;margin-right:4px;"></span>Groupe parent (exécutants)</span>
+      <span><span style="display:inline-block;width:22px;height:12px;background:#1a2535;border:1.5px solid #1d6fa4;border-radius:2px;margin-right:4px;"></span>Groupe enfant / contacts réseau</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#da3633;border-radius:50%;margin-right:4px;"></span>Fichier malveillant</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#1d6fa4;border-radius:50%;margin-right:4px;"></span>Fichier neutre</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#065f46;border-radius:50%;margin-right:4px;"></span>URL/Domaine contacté</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#1e3a5f;border-radius:50%;margin-right:4px;"></span>IP contactée</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#164e63;border-radius:50%;margin-right:4px;"></span>Sandbox / YARA</span>
+      {% else %}
+      <span><span style="display:inline-block;width:10px;height:10px;background:#da3633;border-radius:50%;margin-right:4px;"></span>Malveillant/CVE/Blacklist</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#6741a8;border-radius:50%;margin-right:4px;"></span>ASN/Réseau</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#d29922;border-radius:50%;margin-right:4px;"></span>Port ouvert</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#2ea043;border-radius:50%;margin-right:4px;"></span>Hostname/Signataire</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#1d6fa4;border-radius:50%;margin-right:4px;"></span>Géo/MX/Fichier</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#164e63;border-radius:50%;margin-right:4px;"></span>Sandbox</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
 <!-- Source accordions -->
-{% set results = record.get_results() %}
 {% if results %}
 <h6 class="text-secondary text-uppercase mb-3" style="letter-spacing: 0.5px; font-size: 0.8rem;">
   <i class="bi bi-layers me-1"></i>Données brutes par source
@@ -214,11 +248,414 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
 <script>
   document.getElementById('reenrich-form')?.addEventListener('submit', function() {
     const btn = document.getElementById('reenrich-btn');
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Re-enrichissement...';
     btn.disabled = true;
   });
+
+  document.getElementById('graph-toggle').addEventListener('click', function() {
+    const wrap = document.getElementById('graph-wrap');
+    const icon = document.getElementById('graph-icon');
+    const hidden = wrap.style.display === 'none';
+    wrap.style.display = hidden ? '' : 'none';
+    icon.className = hidden ? 'bi bi-chevron-up' : 'bi bi-chevron-down';
+  });
+
+  const IOC_VALUE = {{ record.value | tojson }};
+  const IOC_TYPE  = {{ record.ioc_type | tojson }};
+  const IOC_MAL   = {{ record.is_malicious | tojson }};
+  const RESULTS   = {{ results | tojson }};
+
+  (function buildGraph() {
+    if (typeof vis === 'undefined') return;
+
+    const isHash = IOC_TYPE === 'hash';
+    let nid = 1;
+    const nodesArr = [], edgesArr = [];
+
+    function newNode(props) {
+      const id = nid++;
+      nodesArr.push({ id, ...props });
+      return id;
+    }
+    function addEdge(from, to, label) {
+      edgesArr.push({ from, to, label: label || '', arrows: 'to',
+        font: { size: 9, align: 'middle', strokeWidth: 0, color: '#8b949e' } });
+    }
+    function trunc(s, n) { return s && s.length > n ? s.substr(0, n) + '…' : (s || ''); }
+
+    // Pre-read VT data so center node can use meaningful_name
+    let vtData = null, relationships = {};
+    if (isHash) {
+      for (const r of RESULTS) {
+        if (r.source === 'VirusTotal' && !r.error && r.data) {
+          vtData = r.data; relationships = r.data.relationships || {}; break;
+        }
+      }
+    }
+
+    // Center node (id = 0)
+    nodesArr.push({
+      id: 0,
+      label: isHash ? trunc((vtData && vtData.meaningful_name) || IOC_VALUE, 20) : trunc(IOC_VALUE, 24),
+      title: IOC_TYPE.toUpperCase() + ': ' + IOC_VALUE,
+      group: IOC_MAL ? 'ioc_mal' : 'ioc_ok',
+      level: isHash ? 2 : undefined,
+      font: { size: 14, bold: true },
+    });
+
+    // ── HASH: hierarchical LR tree ──────────────────────────────────────────
+    if (isHash) {
+      function mkBox(label, title, grp) {
+        return newNode({ label, title, group: grp, level: 3, shape: 'box',
+          margin: { top: 6, bottom: 6, left: 10, right: 10 } });
+      }
+      function mkItem(label, title, grp) { return newNode({ label, title, group: grp, level: 4 }); }
+
+      // level[0]=category level, level[1]=item level
+      const REL_META = {
+        execution_parents:    { label: 'Exec. Parents',   group: 'cat_parent', itemGroup: 'file',        levels: [1, 0],  isParent: true },
+        pe_resource_parents:  { label: 'PE Res. Parents', group: 'cat_parent', itemGroup: 'file',        levels: [1, 0],  isParent: true },
+        contacted_urls:       { label: 'URLs contactées', group: 'cat_child',  itemGroup: 'url_node',    levels: [3, 4],  isParent: false },
+        contacted_domains:    { label: 'Domaines',        group: 'cat_child',  itemGroup: 'domain_node', levels: [3, 4],  isParent: false },
+        contacted_ips:        { label: 'IPs contactées',  group: 'cat_child',  itemGroup: 'ip_node',     levels: [3, 4],  isParent: false },
+        dropped_files:        { label: 'Dropped Files',   group: 'cat_child',  itemGroup: 'file',        levels: [3, 4],  isParent: false },
+        bundled_files:        { label: 'Bundled Files',   group: 'cat_child',  itemGroup: 'file',        levels: [3, 4],  isParent: false },
+        pe_resource_children: { label: 'PE Children',     group: 'cat_child',  itemGroup: 'file',        levels: [3, 4],  isParent: false },
+      };
+
+      for (const [relType, meta] of Object.entries(REL_META)) {
+        const rel = relationships[relType];
+        if (!rel || rel.total === 0) continue;
+
+        const catId = newNode({
+          label: meta.label + '\n(' + rel.total + ')',
+          title: rel.total + ' total — ' + relType,
+          group: meta.group,
+          level: meta.levels[0],
+          shape: 'box',
+          margin: { top: 6, bottom: 6, left: 10, right: 10 },
+        });
+
+        if (meta.isParent) {
+          addEdge(catId, 0);        // parent category → hash
+        } else {
+          addEdge(0, catId);        // hash → child category
+        }
+
+        for (const item of (rel.items || [])) {
+          const isMal = item.malicious > 0;
+          const itemId = newNode({
+            label: trunc(item.name, 22),
+            title: item.name + (item.type ? '\nType: ' + item.type : '') +
+                   '\n' + item.malicious + '/' + item.total + ' détections',
+            group: isMal ? 'file_mal' : meta.itemGroup,
+            level: meta.levels[1],
+          });
+          if (meta.isParent) {
+            addEdge(itemId, catId); // item → parent category
+          } else {
+            addEdge(catId, itemId); // child category → item
+          }
+        }
+      }
+
+      // Static VT data — always shown
+      if (vtData) {
+        // File names + type
+        const names = vtData.names || [];
+        const mName = vtData.meaningful_name || '';
+        const fType = vtData.type_description || vtData.magic || '';
+        if (mName || names.length || fType) {
+          const catId = mkBox('Identité', 'Noms et type du fichier', 'cat_child');
+          addEdge(0, catId);
+          const seen = new Set();
+          [mName, ...names].filter(Boolean).slice(0, 4).forEach(n => {
+            if (!seen.has(n)) { seen.add(n); addEdge(catId, mkItem(trunc(n,22), n, n===mName?'file':'tag')); }
+          });
+          if (fType) addEdge(catId, mkItem(fType, 'Type: '+fType, 'tag'));
+        }
+
+        // Signature — uses "signers" when "subject" is absent (fixes empty label bug)
+        const sig = vtData.signature_info;
+        if (sig) {
+          const sub = sig.subject || '';
+          const signers = (sig.signers||'').split(';').map(s=>s.trim()).filter(Boolean);
+          const cn = (sub.match(/CN=([^,]+)/)||[])[1] || signers[0] || '';
+          const issuer = sig.issuer || '';
+          const issuerCN = (issuer.match(/CN=([^,]+)/)||[])[1] || signers[1] || '';
+          const verified = sig.verified || '';
+          if (cn || verified) {
+            const catId = mkBox('Signature', 'Code signing', 'cat_child');
+            addEdge(0, catId);
+            if (cn) addEdge(catId, mkItem(trunc(cn,22), 'Signataire: '+(sub||sig.signers||cn), 'signer'));
+            if (issuerCN&&issuerCN!==cn) addEdge(catId, mkItem('CA: '+trunc(issuerCN,16), 'Issuer: '+(issuer||sig.signers), 'tag'));
+            if (verified) addEdge(catId, mkItem(verified, 'Statut: '+verified,
+              (verified==='Signed'||verified.toLowerCase().includes('valid'))?'signer':'file_mal'));
+          }
+        }
+
+        // PE metadata
+        const peDate = vtData.pe_compilation_date;
+        const peHash = vtData.pe_imphash;
+        const hiEntr = (vtData.pe_sections||[]).filter(s=>(s.entropy||0)>7.0);
+        if (peDate||peHash||hiEntr.length) {
+          const catId = mkBox('PE Info', 'Métadonnées PE / compilation', 'cat_child');
+          addEdge(0, catId);
+          if (peDate) addEdge(catId, mkItem('Compilé: '+String(peDate).substr(0,10), 'Date compilation: '+peDate, 'tag'));
+          if (peHash) addEdge(catId, mkItem('imphash: '+trunc(peHash,14), 'Import hash: '+peHash, 'tag'));
+          hiEntr.slice(0,3).forEach(s => addEdge(catId, mkItem('⚠ '+s.name+' (H>7)', 'Entropie élevée — packed?', 'threat')));
+        }
+
+        // ExifTool
+        const exif = vtData.exiftool;
+        if (exif) {
+          const pairs = [
+            [exif.CompanyName,      '🏢 '+trunc(exif.CompanyName||'',18),  'CompanyName: '+exif.CompanyName],
+            [exif.ProductName,      trunc(exif.ProductName||'',22),          'ProductName: '+exif.ProductName],
+            [exif.FileVersion,      'v'+exif.FileVersion,                    'FileVersion: '+exif.FileVersion],
+            [exif.OriginalFilename, trunc(exif.OriginalFilename||'',20),     'OriginalFilename: '+exif.OriginalFilename],
+          ].filter(x=>x[0]);
+          if (pairs.length) {
+            const catId = mkBox('ExifTool', 'Métadonnées ExifTool', 'cat_child');
+            addEdge(0, catId);
+            pairs.forEach(([,lbl,tip]) => addEdge(catId, mkItem(lbl, tip, 'tag')));
+          }
+        }
+
+        // Threat classification
+        const tLabel = vtData.popular_threat_label;
+        const tNames = vtData.threat_names||[];
+        if (tLabel||tNames.length) {
+          const catId = mkBox('Classification', 'Famille de menace', 'cat_child');
+          addEdge(0, catId);
+          if (tLabel) addEdge(catId, mkItem(trunc(tLabel,22), 'Label VT: '+tLabel, 'threat'));
+          tNames.slice(0,3).forEach(n => addEdge(catId, mkItem(trunc(n,22), 'Famille: '+n, 'threat')));
+          (vtData.threat_categories||[]).slice(0,2).forEach(c => addEdge(catId, mkItem(trunc(c,22),'Catégorie: '+c,'tag')));
+        }
+
+        // Detection vendors
+        const malVendors = vtData.malicious_vendors||[];
+        if (malVendors.length) {
+          const catId = mkBox('Détections\n('+malVendors.length+'/'+vtData.total_engines+')', 'AV ayant détecté le fichier', 'cat_child');
+          addEdge(0, catId);
+          malVendors.slice(0,6).forEach(v => addEdge(catId, mkItem(trunc(v,20), 'Détecté: '+v, 'file_mal')));
+        }
+
+        // Sandbox — shows malicious/suspicious OR clean summary
+        const sbAll = vtData.sandbox_verdicts||[];
+        const sbMal  = sbAll.filter(s=>s.category==='malicious'||s.category==='suspicious');
+        const sbHarm = sbAll.filter(s=>s.category==='harmless');
+        const sbShow = sbMal.length  ? [sbMal.slice(0,5),  'Sandbox ('+sbMal.length+' det.)']
+                     : sbHarm.length ? [sbHarm.slice(0,4), 'Sandbox ('+sbHarm.length+' clean)'] : null;
+        if (sbShow) {
+          const [items, lbl] = sbShow;
+          const catId = mkBox(lbl, 'Verdicts sandbox', 'cat_child');
+          addEdge(0, catId);
+          items.forEach(sb => {
+            const g = sb.category==='malicious'?'file_mal': sb.category==='suspicious'?'threat':'signer';
+            const detail = (sb.malware_names||[]).filter(m=>m!=='CLEAN'&&m!=='UNKNOWN_VERDICT').slice(0,1).join('');
+            addEdge(catId, mkItem(trunc(sb.sandbox,20), sb.sandbox+': '+sb.category+(detail?' · '+detail:''), g));
+          });
+        }
+
+        // YARA
+        const yara = vtData.yara_rules||[];
+        if (yara.length) {
+          const catId = mkBox('YARA ('+yara.length+')', 'Règles YARA matchées', 'cat_child');
+          addEdge(0, catId);
+          yara.slice(0,5).forEach(y => addEdge(catId, mkItem(trunc(y.rule_name||y.ruleset_name||'?',20),
+            (y.description?y.description+'\n':'')+(y.source?'Source: '+y.source:''), 'tag')));
+        }
+
+        // Crowdsourced context
+        const ctx = vtData.crowdsourced_context||[];
+        if (ctx.length) {
+          const catId = mkBox('Contexte ('+ctx.length+')', 'Rapports crowdsourcés (Talos, etc.)', 'cat_child');
+          addEdge(0, catId);
+          ctx.slice(0,5).forEach(c => {
+            const g = ['high','critical'].includes(c.severity)?'threat':'tag';
+            addEdge(catId, mkItem(trunc(c.title||c.source||'?',22),
+              (c.source?c.source+'\n':'')+(c.title||'')+(c.severity?'\nSévérité: '+c.severity:''), g));
+          });
+        }
+      }
+
+    // ── IP / DOMAIN: force-directed ─────────────────────────────────────────
+    } else {
+      for (const r of RESULTS) {
+        if (r.error || !r.data) continue;
+        const d = r.data;
+
+        if (r.source === 'AbuseIPDB') {
+          if (d.country_name) addEdge(0, newNode({ label: d.country_name, title: 'Pays — AbuseIPDB', group: 'geo' }), 'pays');
+          if (d.isp)          addEdge(0, newNode({ label: trunc(d.isp, 22), title: 'ISP — AbuseIPDB', group: 'network' }), 'ISP');
+        }
+
+        if (r.source === 'VirusTotal') {
+          if (d.as_owner) addEdge(0, newNode({ label: trunc(d.as_owner, 22), title: `AS${d.asn || ''} — ${d.as_owner}`, group: 'network' }), `AS${d.asn || ''}`);
+          (d.tags || []).slice(0, 4).forEach(t => addEdge(0, newNode({ label: '#' + t, title: 'Tag VirusTotal', group: 'tag' }), 'tag'));
+          (d.communicating_files || []).slice(0, 4).forEach(f => {
+            addEdge(0, newNode({ label: '📄 ' + trunc(f.name || f.sha256 || '', 18),
+              title: (f.type || 'fichier') + ' — ' + f.malicious + '/' + f.total + ' détections',
+              group: f.malicious > 0 ? 'file_mal' : 'file' }), 'comm.');
+          });
+          if (d.signature_info) {
+            const sub = d.signature_info.subject || '';
+            const signers = (d.signature_info.signers||'').split(';').map(s=>s.trim()).filter(Boolean);
+            const cn = (sub.match(/CN=([^,]+)/)||[])[1] || signers[0] || '';
+            if (cn) addEdge(0, newNode({ label: '✍️ '+trunc(cn,20), title: 'Signataire: '+(sub||d.signature_info.signers), group: 'signer' }), 'signé par');
+          }
+          if (d.popular_threat_label) addEdge(0, newNode({ label: trunc(d.popular_threat_label, 22), title: 'Classification VT', group: 'threat' }), 'classifié');
+          (d.threat_names || []).slice(0, 3).forEach(n => addEdge(0, newNode({ label: trunc(n, 20), title: 'Famille de menace VT', group: 'threat' }), 'famille'));
+          (d.sandbox_verdicts || []).filter(sb => sb.category && sb.category !== 'undetected').slice(0, 3).forEach(sb => {
+            addEdge(0, newNode({ label: '🔬 ' + trunc(sb.sandbox, 18), title: sb.sandbox + ': ' + sb.category, group: 'sandbox' }), 'sandbox');
+          });
+          if (d.registrar) addEdge(0, newNode({ label: trunc(d.registrar,22), title: 'Registrar', group: 'network' }), 'registrar');
+          (d.ids_rules||[]).slice(0,4).forEach(rule => addEdge(0, newNode({
+            label: trunc(rule.rule_msg||rule.rule_name||'',22),
+            title: (rule.rule_source?rule.rule_source+'\n':'')+(rule.rule_msg||'')+(rule.severity?'\nSévérité: '+rule.severity:''),
+            group: 'cve' }), 'IDS'));
+          (d.crowdsourced_context||[]).filter(c=>c.title||c.source).slice(0,3).forEach(c => addEdge(0, newNode({
+            label: trunc(c.title||c.source||'',22),
+            title: (c.source||'')+(c.title?'\n'+c.title:'')+(c.severity?'\nSévérité: '+c.severity:''),
+            group: ['high','critical'].includes(c.severity)?'threat':'tag' }), 'context'));
+        }
+
+        if (r.source === 'Shodan') {
+          const services = d.services||[];
+          if (services.length) {
+            services.slice(0,8).forEach(svc => {
+              const lbl = svc.port+(svc.product?' · '+trunc(svc.product,11):'/'+(svc.transport||'tcp'));
+              addEdge(0, newNode({ label: lbl,
+                title: 'Port: '+svc.port+(svc.product?'\nProduit: '+svc.product:'')+(svc.version?'\nVersion: '+svc.version:''),
+                group: 'port' }), 'service');
+            });
+          } else {
+            (d.ports||[]).slice(0,6).forEach(p => addEdge(0, newNode({ label:'⚡ '+p, title:'Port '+p+' ouvert', group:'port' }), 'port'));
+          }
+          (d.hostnames || []).slice(0, 4).forEach(h => addEdge(0, newNode({ label: trunc(h, 22), title: 'Hostname: ' + h, group: 'hostname' }), 'hostname'));
+          (d.vulns || []).slice(0, 5).forEach(c => addEdge(0, newNode({ label: '⚠️ ' + c, title: 'Vulnérabilité Shodan: ' + c, group: 'cve' }), 'exposé à'));
+          (d.subdomains || []).slice(0, 8).forEach(s => addEdge(0, newNode({ label: trunc(s, 22), title: 'Sous-domaine (Shodan)', group: 'subdomain' }), 'sous-domaine'));
+          (d.dns_records || []).filter(rec => rec.type === 'A').slice(0, 4).forEach(rec => {
+            const lbl = (rec.subdomain !== '@' ? rec.subdomain + '.' : '') + IOC_VALUE;
+            addEdge(0, newNode({ label: '🌐 ' + rec.value, title: lbl + ' → ' + rec.value, group: 'ip_node' }), 'A (' + rec.subdomain + ')');
+          });
+          if (d.org && !d.org.startsWith('AS') && nodesArr.every(n => n.title !== d.org)) {
+            addEdge(0, newNode({ label: trunc(d.org, 22), title: 'Organisation (Shodan)', group: 'network' }), 'org');
+          }
+        }
+
+        if (r.source === 'MXToolBox') {
+          (d.blacklisted_on || []).slice(0, 5).forEach(bl => addEdge(0, newNode({ label: '🚫 ' + bl, title: 'Blacklisté sur ' + bl, group: 'blacklist' }), 'blacklisté'));
+          (d.mx_records || []).slice(0, 4).forEach(mx => {
+            addEdge(0, newNode({ label: '📧 ' + trunc(mx.domain || '', 20), title: 'MX prio ' + mx.pref + ' — IP: ' + (mx.ip || '?'), group: 'mx' }), 'serveur MX');
+          });
+        }
+
+        if (r.source === 'urlscan.io') {
+          (d.recent_scans || []).slice(0, 3).forEach(sc => {
+            if (sc.domain && sc.domain !== IOC_VALUE) {
+              addEdge(0, newNode({ label: trunc(sc.domain, 22), title: 'Scan urlscan.io' + (sc.malicious ? ' ⚠️' : ''), group: sc.malicious ? 'scan_mal' : 'scan' }), 'domaine scanné');
+            }
+          });
+        }
+      }
+    }
+
+    if (nodesArr.length <= 1) {
+      document.getElementById('ioc-graph').innerHTML =
+        '<div class="text-center text-muted py-5" style="padding-top:160px!important">' +
+        '<i class="bi bi-diagram-3 display-5 d-block mb-2"></i>Pas assez de données pour construire le graphe.</div>';
+      return;
+    }
+
+    const GROUPS = {
+      ioc_mal:     { color: { background: '#da3633', border: '#ff6b6b' }, shape: 'diamond', size: 28, font: { bold: true, color: '#fff' } },
+      ioc_ok:      { color: { background: '#2ea043', border: '#5cb85c' }, shape: 'diamond', size: 28, font: { bold: true, color: '#fff' } },
+      cat_parent:  { color: { background: '#1e2a3a', border: '#6741a8' }, shape: 'box', font: { color: '#9b72cf', size: 11 } },
+      cat_child:   { color: { background: '#1a2535', border: '#1d6fa4' }, shape: 'box', font: { color: '#60a5fa', size: 11 } },
+      geo:         { color: { background: '#1d6fa4', border: '#4facde' }, shape: 'dot', size: 16 },
+      network:     { color: { background: '#6741a8', border: '#9b72cf' }, shape: 'dot', size: 16 },
+      port:        { color: { background: '#d29922', border: '#f0c14b' }, shape: 'triangleDown', size: 14 },
+      cve:         { color: { background: '#b91c1c', border: '#ef4444' }, shape: 'square', size: 14 },
+      file_mal:    { color: { background: '#da3633', border: '#f87171' }, shape: 'dot', size: 12 },
+      file:        { color: { background: '#1d6fa4', border: '#60a5fa' }, shape: 'dot', size: 12 },
+      url_node:    { color: { background: '#065f46', border: '#34d399' }, shape: 'dot', size: 12 },
+      domain_node: { color: { background: '#581c87', border: '#a855f7' }, shape: 'dot', size: 12 },
+      ip_node:     { color: { background: '#1e3a5f', border: '#3b82f6' }, shape: 'dot', size: 12 },
+      blacklist:   { color: { background: '#7f1d1d', border: '#dc2626' }, shape: 'hexagon', size: 15 },
+      threat:      { color: { background: '#c2410c', border: '#fb923c' }, shape: 'dot', size: 14 },
+      tag:         { color: { background: '#374151', border: '#6b7280' }, shape: 'dot', size: 11 },
+      hostname:    { color: { background: '#065f46', border: '#10b981' }, shape: 'dot', size: 14 },
+      subdomain:   { color: { background: '#581c87', border: '#a855f7' }, shape: 'dot', size: 14 },
+      mx:          { color: { background: '#1e40af', border: '#60a5fa' }, shape: 'dot', size: 14 },
+      scan_mal:    { color: { background: '#b91c1c', border: '#ef4444' }, shape: 'dot', size: 13 },
+      scan:        { color: { background: '#374151', border: '#9ca3af' }, shape: 'dot', size: 13 },
+      signer:      { color: { background: '#064e3b', border: '#34d399' }, shape: 'dot', size: 14 },
+      sandbox:     { color: { background: '#164e63', border: '#22d3ee' }, shape: 'dot', size: 13 },
+    };
+
+    const hashOpts = {
+      layout: {
+        hierarchical: {
+          enabled: true,
+          direction: 'LR',
+          sortMethod: 'directed',
+          levelSeparation: 185,
+          nodeSpacing: 52,
+          treeSpacing: 90,
+          blockShifting: true,
+          edgeMinimization: true,
+          parentCentralization: true,
+        }
+      },
+      physics: { enabled: false },
+      nodes: { font: { color: '#c9d1d9', size: 11 }, borderWidth: 2, borderWidthSelected: 3 },
+      edges: {
+        font: { color: '#8b949e', size: 9, strokeWidth: 0 },
+        color: { color: '#30363d', highlight: '#58a6ff' },
+        smooth: { type: 'cubicBezier', forceDirection: 'horizontal', roundness: 0.4 },
+        arrows: { to: { enabled: true, scaleFactor: 0.6 } },
+      },
+      groups: GROUPS,
+      interaction: { hover: true, tooltipDelay: 80, zoomView: true, dragView: true },
+    };
+
+    const forceOpts = {
+      nodes: { font: { color: '#c9d1d9', size: 12 }, borderWidth: 2 },
+      edges: {
+        font: { color: '#8b949e', size: 10, align: 'middle', strokeWidth: 0 },
+        color: { color: '#30363d', highlight: '#58a6ff', hover: '#58a6ff' },
+        smooth: { type: 'continuous', roundness: 0.3 },
+        length: 135,
+      },
+      groups: GROUPS,
+      physics: {
+        barnesHut: { gravitationalConstant: -4500, centralGravity: 0.35, springLength: 135, springConstant: 0.05, damping: 0.4 },
+        stabilization: { iterations: 150, fit: true },
+      },
+      interaction: { hover: true, tooltipDelay: 100, zoomView: true, dragView: true },
+    };
+
+    const network = new vis.Network(
+      document.getElementById('ioc-graph'),
+      { nodes: new vis.DataSet(nodesArr), edges: new vis.DataSet(edgesArr) },
+      isHash ? hashOpts : forceOpts
+    );
+    if (isHash) {
+      setTimeout(() => network.fit({ animation: { duration: 400, easingFunction: 'easeInOutQuad' } }), 80);
+      // Click on a contacted IP/domain node → navigate to its detail page
+      network.on('click', params => {
+        if (params.nodes.length === 1) {
+          const nd = nodesArr.find(n => n.id === params.nodes[0]);
+          if (nd && nd.navUrl) window.location.href = nd.navUrl;
+        }
+      });
+    }
+  })();
 </script>
 {% endblock %}

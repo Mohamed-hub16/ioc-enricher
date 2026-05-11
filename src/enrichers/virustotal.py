@@ -49,6 +49,61 @@ def _get_related_files(ip: str, api_key: str) -> list[dict]:
         return []
 
 
+_HASH_RELATIONSHIPS = [
+    ("execution_parents",    5),
+    ("pe_resource_parents",  5),
+    ("contacted_urls",       5),
+    ("contacted_domains",    8),
+    ("contacted_ips",        8),
+    ("dropped_files",        8),
+    ("bundled_files",        5),
+    ("pe_resource_children", 5),
+]
+
+
+def _get_file_relationships(file_hash: str, api_key: str) -> dict:
+    """Fetch top related entities for a hash: parents, network contacts, children."""
+    result = {}
+    for rel_type, limit in _HASH_RELATIONSHIPS:
+        try:
+            resp = httpx.get(
+                f"{_BASE}/files/{file_hash}/{rel_type}",
+                headers={"x-apikey": api_key},
+                params={"limit": limit},
+                timeout=_TIMEOUT,
+            )
+            if resp.status_code != 200:
+                continue
+            body = resp.json()
+            meta = body.get("meta") or {}
+            total = meta.get("total_hits") or meta.get("count") or len(body.get("data", []))
+            items = []
+            for item in body.get("data", []):
+                attrs = item.get("attributes", {})
+                stats = attrs.get("last_analysis_stats", {})
+                mal = stats.get("malicious", 0)
+                tot = sum(stats.values()) if stats else 0
+                if rel_type == "contacted_urls":
+                    name = attrs.get("url", "")
+                elif rel_type in ("contacted_domains", "contacted_ips"):
+                    name = item.get("id", "")
+                else:
+                    name = (attrs.get("meaningful_name") or
+                            attrs.get("name") or
+                            item.get("id", "")[:20])
+                items.append({
+                    "name": (name or "")[:100],
+                    "malicious": mal,
+                    "total": tot,
+                    "type": attrs.get("type_description") or attrs.get("type_tag") or "",
+                })
+            if total or items:
+                result[rel_type] = {"total": total, "items": items}
+        except Exception:
+            continue
+    return result
+
+
 def enrich(ioc: IOC, keys: dict | None = None) -> EnrichmentResult:
     api_key = (keys or {}).get("VIRUSTOTAL_API_KEY") or os.getenv("VIRUSTOTAL_API_KEY", "")
     if not api_key:
@@ -260,5 +315,10 @@ def enrich(ioc: IOC, keys: dict | None = None) -> EnrichmentResult:
                 }
                 for name, v in list(sb.items())[:6]
             ]
+
+        # Relationship graph data
+        rels = _get_file_relationships(ioc.value, api_key)
+        if rels:
+            data["relationships"] = rels
 
     return EnrichmentResult(source="VirusTotal", ioc=ioc, data=data)
