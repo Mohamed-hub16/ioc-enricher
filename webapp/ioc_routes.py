@@ -1,3 +1,4 @@
+import ipaddress
 import os
 from datetime import datetime
 from flask import Blueprint, render_template, redirect, url_for, flash, request
@@ -12,6 +13,48 @@ from src.synthesis import groq_synthesizer
 ioc_bp = Blueprint("ioc", __name__)
 
 
+def _is_private_ioc(value: str, ioc_type: str) -> bool:
+    if ioc_type == "ip":
+        try:
+            ip = ipaddress.ip_address(value)
+            return ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local
+        except ValueError:
+            return False
+    if ioc_type == "domain":
+        lower = value.lower()
+        return lower == "localhost" or lower.endswith(".local") or lower.endswith(".internal")
+    return False
+
+
+def _compute_threat_score(raw_results: list[dict]) -> int:
+    """Returns a 0-100 threat score: 50% AbuseIPDB confidence + 50% VirusTotal detection ratio."""
+    abuse_score = None
+    vt_score = None
+
+    for res in raw_results:
+        if res.get("error"):
+            continue
+        data = res.get("data", {})
+        if res["source"] == "AbuseIPDB":
+            abuse_score = data.get("abuse_confidence_score", 0) or 0
+        elif res["source"] == "VirusTotal":
+            malicious = data.get("malicious", 0) or 0
+            total = data.get("total_engines", 0) or 0
+            vt_score = round(malicious / total * 100) if total > 0 else 0
+
+    if abuse_score is not None and vt_score is not None:
+        return min(100, round(abuse_score * 0.5 + vt_score * 0.5))
+    if abuse_score is not None:
+        return min(100, int(abuse_score))
+    if vt_score is not None:
+        return min(100, int(vt_score))
+    return 0
+
+
+def _all_sources_failed(raw_results: list[dict]) -> bool:
+    return bool(raw_results) and all(res.get("error") for res in raw_results)
+
+
 def _enrich_ioc(value: str) -> tuple[str, list[dict], str | None]:
     iocs, _ = parse_iocs([value])
     if not iocs:
@@ -24,23 +67,40 @@ def _enrich_ioc(value: str) -> tuple[str, list[dict], str | None]:
 
     result_objects = [fn(ioc) for fn in enrichers]
     raw = [{"source": r.source, "data": r.data, "error": r.error} for r in result_objects]
-    paragraph = groq_synthesizer.synthesize(result_objects) if os.getenv("GROQ_API_KEY") else None
-    return ioc.type, raw, paragraph
+    threat_score = _compute_threat_score(raw)
+    paragraph = groq_synthesizer.synthesize(result_objects, threat_score) if os.getenv("GROQ_API_KEY") else None
+    return ioc.type, raw, paragraph, threat_score
 
 
 @ioc_bp.route("/")
 def index():
     q = request.args.get("q", "").strip()
+    filt = request.args.get("filter", "all")  # all | malicious | legitimate
+
     query = IOCRecord.query.order_by(IOCRecord.enriched_at.desc())
     if q:
         query = query.filter(IOCRecord.value.ilike(f"%{q}%"))
+    if filt == "malicious":
+        query = query.filter(IOCRecord.threat_score > 0)
+    elif filt == "legitimate":
+        query = query.filter(IOCRecord.threat_score == 0)
+
     records = query.limit(100).all()
-    return render_template("index.html", records=records, q=q)
+
+    counts = {
+        "all": IOCRecord.query.count(),
+        "malicious": IOCRecord.query.filter(IOCRecord.threat_score > 0).count(),
+        "legitimate": IOCRecord.query.filter(IOCRecord.threat_score == 0).count(),
+    }
+
+    return render_template("index.html", records=records, q=q, filt=filt, counts=counts)
 
 
 @ioc_bp.route("/ioc/<path:value>")
 def detail(value: str):
     record = IOCRecord.query.filter_by(value=value).first_or_404()
+    record.view_count = (record.view_count or 0) + 1
+    db.session.commit()
     return render_template("ioc_detail.html", record=record)
 
 
@@ -59,6 +119,23 @@ def enrich():
             flash("Veuillez saisir un IOC.", "danger")
             return render_template("enrich.html")
 
+        # Detect IOC type first to check for private addresses
+        iocs, _ = parse_iocs([value])
+        if not iocs:
+            flash(f"IOC non reconnu : {value!r}", "danger")
+            return render_template("enrich.html", prefill=value)
+
+        ioc_type = iocs[0].type
+
+        # Private / local IOC: no info available, don't save
+        if _is_private_ioc(value, ioc_type):
+            return render_template(
+                "enrich.html",
+                prefill=value,
+                no_info=True,
+                no_info_reason="Adresse privée ou locale (RFC1918 / loopback / .local)",
+            )
+
         existing = IOCRecord.query.filter_by(value=value).first()
         if existing and not force and not existing.is_stale:
             flash(
@@ -69,7 +146,7 @@ def enrich():
             return redirect(url_for("ioc.detail", value=value))
 
         try:
-            ioc_type, raw, paragraph = _enrich_ioc(value)
+            ioc_type, raw, paragraph, threat_score = _enrich_ioc(value)
         except ValueError as exc:
             flash(str(exc), "danger")
             return render_template("enrich.html", prefill=value)
@@ -77,17 +154,28 @@ def enrich():
             flash(f"Erreur lors de l'enrichissement : {exc}", "danger")
             return render_template("enrich.html", prefill=value)
 
+        # No data from any source: don't save, show info message
+        if _all_sources_failed(raw):
+            return render_template(
+                "enrich.html",
+                prefill=value,
+                no_info=True,
+                no_info_reason="Aucune source n'a retourné d'information pour cet IOC.",
+            )
+
         if existing:
             existing.enriched_at = datetime.utcnow()
             existing.enriched_by = current_user.email
             existing.set_results(raw)
             existing.paragraph = paragraph
+            existing.threat_score = threat_score
         else:
             record = IOCRecord(
                 value=value,
                 ioc_type=ioc_type,
                 enriched_by=current_user.email,
                 paragraph=paragraph,
+                threat_score=threat_score,
             )
             record.set_results(raw)
             db.session.add(record)

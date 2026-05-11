@@ -41,6 +41,8 @@ class IOCRecord(db.Model):
     enriched_by = db.Column(db.String(120), nullable=True)
     raw_results = db.Column(db.Text, nullable=True)
     paragraph = db.Column(db.Text, nullable=True)
+    threat_score = db.Column(db.Integer, default=0, nullable=False, server_default="0")
+    view_count = db.Column(db.Integer, default=0, nullable=False, server_default="0")
 
     def get_results(self) -> list[dict]:
         return json.loads(self.raw_results) if self.raw_results else []
@@ -55,3 +57,7 @@ class IOCRecord(db.Model):
     @property
     def is_stale(self) -> bool:
         return self.age_days >= STALE_DAYS
+
+    @property
+    def is_malicious(self) -> bool:
+        return (self.threat_score or 0) > 0

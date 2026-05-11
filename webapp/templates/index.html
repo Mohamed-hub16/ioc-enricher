@@ -2,12 +2,13 @@
 {% block title %}Historique IOCs — IOC Enricher{% endblock %}
 
 {% block content %}
-<div class="row mb-4 align-items-center">
+<div class="row mb-3 align-items-center">
   <div class="col">
     <h5 class="mb-3 text-secondary">
       <i class="bi bi-database me-2"></i>Base de connaissance IOCs
     </h5>
     <form method="get" action="{{ url_for('ioc.index') }}" class="d-flex gap-2">
+      <input type="hidden" name="filter" value="{{ filt }}">
       <input type="text" name="q" class="form-control ioc-value"
              placeholder="Rechercher une IP, domaine, hash..."
              value="{{ q }}">
@@ -15,7 +16,7 @@
         <i class="bi bi-search"></i>
       </button>
       {% if q %}
-      <a href="{{ url_for('ioc.index') }}" class="btn btn-outline-secondary">
+      <a href="{{ url_for('ioc.index', filter=filt) }}" class="btn btn-outline-secondary">
         <i class="bi bi-x-lg"></i>
       </a>
       {% endif %}
@@ -30,6 +31,25 @@
   {% endif %}
 </div>
 
+<!-- Filter tabs -->
+<div class="d-flex gap-2 mb-4">
+  <a href="{{ url_for('ioc.index', q=q, filter='all') }}"
+     class="btn btn-sm {% if filt == 'all' %}btn-secondary{% else %}btn-outline-secondary{% endif %}">
+    <i class="bi bi-list-ul me-1"></i>Tous
+    <span class="badge bg-dark ms-1">{{ counts.all }}</span>
+  </a>
+  <a href="{{ url_for('ioc.index', q=q, filter='malicious') }}"
+     class="btn btn-sm {% if filt == 'malicious' %}btn-danger{% else %}btn-outline-danger{% endif %}">
+    <i class="bi bi-exclamation-triangle me-1"></i>Malveillants
+    <span class="badge {% if filt == 'malicious' %}bg-dark{% else %}bg-danger{% endif %} ms-1">{{ counts.malicious }}</span>
+  </a>
+  <a href="{{ url_for('ioc.index', q=q, filter='legitimate') }}"
+     class="btn btn-sm {% if filt == 'legitimate' %}btn-success{% else %}btn-outline-success{% endif %}">
+    <i class="bi bi-shield-check me-1"></i>Légitimes
+    <span class="badge {% if filt == 'legitimate' %}bg-dark{% else %}bg-success{% endif %} ms-1">{{ counts.legitimate }}</span>
+  </a>
+</div>
+
 {% if records %}
 <div class="card">
   <div class="card-body p-0">
@@ -38,9 +58,11 @@
         <tr>
           <th class="ps-3">IOC</th>
           <th>Type</th>
+          <th>Score</th>
           <th>Sources</th>
           <th>Enrichi par</th>
           <th>Date</th>
+          <th title="Nombre de consultations de la fiche">Vues</th>
           <th></th>
         </tr>
       </thead>
@@ -61,6 +83,26 @@
           <td>
             <span class="badge badge-{{ r.ioc_type }}">{{ r.ioc_type }}</span>
           </td>
+          <td style="min-width: 110px;">
+            {% set s = [r.threat_score or 0, 100] | min %}
+            {% if s == 0 %}
+              {% set sc = '#2ea043' %}
+            {% elif s <= 30 %}
+              {% set sc = '#d29922' %}
+            {% elif s <= 70 %}
+              {% set sc = '#fd7e14' %}
+            {% else %}
+              {% set sc = '#da3633' %}
+            {% endif %}
+            <div class="d-flex align-items-center gap-2">
+              <span class="fw-bold ioc-value small" style="color: {{ sc }}; min-width: 32px;">
+                {{ s }}
+              </span>
+              <div style="flex:1; background:#0d1117; border-radius:4px; height:6px; overflow:hidden;">
+                <div style="width:{{ [s,3]|max }}%; height:100%; background:{{ sc }}; border-radius:4px;"></div>
+              </div>
+            </div>
+          </td>
           <td>
             {% for res in r.get_results() %}
               {% if not res['error'] %}
@@ -76,6 +118,9 @@
             {% elif r.age_days == 1 %}Hier
             {% else %}il y a {{ r.age_days }}j
             {% endif %}
+          </td>
+          <td class="text-muted small text-center">
+            <i class="bi bi-eye me-1"></i>{{ r.view_count or 0 }}
           </td>
           <td class="pe-3">
             <a href="{{ url_for('ioc.detail', value=r.value) }}"

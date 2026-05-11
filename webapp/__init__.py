@@ -49,5 +49,29 @@ def create_app() -> Flask:
 
     with app.app_context():
         db.create_all()
+        # Migration: add threat_score column to existing databases
+        try:
+            db.session.execute(db.text(
+                "ALTER TABLE ioc_records ADD COLUMN threat_score INTEGER NOT NULL DEFAULT 0"
+            ))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+        # Migration: add view_count column to existing databases
+        try:
+            db.session.execute(db.text(
+                "ALTER TABLE ioc_records ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0"
+            ))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+        # Migration: clamp any out-of-range scores left by the old formula
+        db.session.execute(db.text(
+            "UPDATE ioc_records SET threat_score = 100 WHERE threat_score > 100"
+        ))
+        db.session.execute(db.text(
+            "UPDATE ioc_records SET threat_score = 0 WHERE threat_score < 0"
+        ))
+        db.session.commit()
 
     return app

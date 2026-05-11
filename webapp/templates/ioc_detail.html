@@ -39,11 +39,89 @@
   </a>
   <h4 class="mb-0 ioc-value">{{ record.value }}</h4>
   <span class="badge badge-{{ record.ioc_type }} px-3 py-2">{{ record.ioc_type }}</span>
+  {% if record.is_malicious %}
+  <span class="badge bg-danger px-3 py-2">
+    <i class="bi bi-exclamation-triangle me-1"></i>Potentiellement malveillant
+  </span>
+  {% else %}
+  <span class="badge bg-success px-3 py-2">
+    <i class="bi bi-shield-check me-1"></i>Légitime
+  </span>
+  {% endif %}
   {% if record.is_stale %}
   <span class="badge bg-warning text-dark">
     <i class="bi bi-clock-history me-1"></i>Données de plus de 7 jours
   </span>
   {% endif %}
+</div>
+
+<!-- Threat Score Gauge -->
+{% set score = record.threat_score or 0 %}
+{% if score == 0 %}
+  {% set gauge_color = 'success' %}
+  {% set gauge_label = 'Légitime' %}
+  {% set gauge_icon = 'shield-check' %}
+{% elif score <= 30 %}
+  {% set gauge_color = 'warning' %}
+  {% set gauge_label = 'Risque faible' %}
+  {% set gauge_icon = 'exclamation-circle' %}
+{% elif score <= 70 %}
+  {% set gauge_color = 'orange' %}
+  {% set gauge_label = 'Risque modéré' %}
+  {% set gauge_icon = 'exclamation-triangle' %}
+{% else %}
+  {% set gauge_color = 'danger' %}
+  {% set gauge_label = 'Risque élevé' %}
+  {% set gauge_icon = 'shield-exclamation' %}
+{% endif %}
+
+<div class="card mb-4" style="border-color: #30363d;">
+  <div class="card-body py-3">
+    <div class="d-flex align-items-center gap-4 flex-wrap">
+      <div class="text-center" style="min-width: 90px;">
+        <div class="display-5 fw-bold
+          {% if score == 0 %}text-success
+          {% elif score <= 30 %}text-warning
+          {% elif score <= 70 %}text-orange
+          {% else %}text-danger{% endif %}"
+          style="{% if score > 30 and score <= 70 %}color: #fd7e14 !important;{% endif %} font-variant-numeric: tabular-nums;">
+          {{ score }}<span class="fs-4 fw-normal text-muted">/100</span>
+        </div>
+        <div class="small fw-semibold mt-1
+          {% if score == 0 %}text-success
+          {% elif score <= 30 %}text-warning
+          {% elif score <= 70 %}text-orange
+          {% else %}text-danger{% endif %}"
+          style="{% if score > 30 and score <= 70 %}color: #fd7e14 !important;{% endif %}">
+          <i class="bi bi-{{ gauge_icon }} me-1"></i>{{ gauge_label }}
+        </div>
+      </div>
+      <div class="flex-grow-1">
+        <div class="d-flex justify-content-between small text-muted mb-1">
+          <span>Score de menace global</span>
+          <span class="text-muted fst-italic" style="font-size:0.75rem;">
+            AbuseIPDB × VirusTotal
+          </span>
+        </div>
+        <div class="progress" style="height: 12px; background-color: #0d1117; border-radius: 6px;">
+          <div class="progress-bar
+            {% if score == 0 %}bg-success
+            {% elif score <= 30 %}bg-warning
+            {% elif score <= 70 %}bg-orange
+            {% else %}bg-danger{% endif %}"
+            role="progressbar"
+            style="width: {{ [score, 3]|max }}%;
+                   {% if score > 30 and score <= 70 %}background-color: #fd7e14 !important;{% endif %}
+                   border-radius: 6px; transition: width 0.6s ease;">
+          </div>
+        </div>
+        <div class="d-flex justify-content-between small text-muted mt-1">
+          <span>0 — Sûr</span>
+          <span>100 — Malveillant</span>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Meta + re-enrich -->
@@ -53,6 +131,8 @@
   {% if record.enriched_by %}
     par <strong>{{ record.enriched_by }}</strong>
   {% endif %}
+  &nbsp;&middot;&nbsp;
+  <i class="bi bi-eye me-1"></i>{{ record.view_count or 0 }} consultation{{ 's' if (record.view_count or 0) > 1 else '' }}
   {% if current_user.is_authenticated and current_user.is_approved %}
   &nbsp;&middot;&nbsp;
   <form method="post" action="{{ url_for('ioc.enrich') }}" class="d-inline" id="reenrich-form">
