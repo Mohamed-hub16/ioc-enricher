@@ -8,7 +8,7 @@ from flask_login import login_required, current_user
 logger = logging.getLogger(__name__)
 
 from webapp import db
-from webapp.models import IOCRecord
+from webapp.models import IOCRecord, Comment
 from src.parsers.ioc_parser import parse_iocs
 from src.enrichers import ENRICHERS_BY_TYPE
 from src.synthesis import groq_synthesizer
@@ -216,3 +216,38 @@ def enrich():
         return redirect(url_for("ioc.detail", value=value))
 
     return render_template("enrich.html", prefill=request.args.get("ioc", ""))
+
+
+@ioc_bp.route("/ioc/<path:value>/delete", methods=["POST"])
+@login_required
+def delete_ioc(value: str):
+    if not current_user.is_admin:
+        abort(403)
+    record = IOCRecord.query.filter_by(value=value).first_or_404()
+    Comment.query.filter_by(ioc_record_id=record.id).delete()
+    db.session.delete(record)
+    db.session.commit()
+    flash(f"IOC « {value} » supprimé.", "success")
+    return redirect(url_for("ioc.index"))
+
+
+@ioc_bp.route("/ioc/<path:value>/comment", methods=["POST"])
+@login_required
+def add_comment(value: str):
+    if not current_user.is_approved:
+        abort(403)
+    record = IOCRecord.query.filter_by(value=value).first_or_404()
+    content = request.form.get("content", "").strip()
+    if not content:
+        flash("Le commentaire ne peut pas être vide.", "danger")
+        return redirect(url_for("ioc.detail", value=value))
+    comment = Comment(
+        ioc_record_id=record.id,
+        author=current_user.email,
+        content=content,
+        enriched_at_snapshot=record.enriched_at,
+    )
+    db.session.add(comment)
+    db.session.commit()
+    flash("Commentaire ajouté.", "success")
+    return redirect(url_for("ioc.detail", value=value))

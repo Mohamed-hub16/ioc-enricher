@@ -78,7 +78,7 @@
           <th style="width: 115px;">Score</th>
           <th>Sources</th>
           <th style="width: 120px;">Enrichi par</th>
-          <th style="width: 88px;">Date</th>
+          <th style="width: 110px;">Date</th>
           <th style="width: 55px;" title="Nombre de consultations de la fiche">Vues</th>
           <th style="width: 48px;"></th>
         </tr>
@@ -133,7 +133,7 @@
             {% endfor %}
           </td>
           <td class="text-muted small">{{ r.enriched_by or '—' }}</td>
-          <td class="text-muted small" title="{{ r.enriched_at.strftime('%Y-%m-%d %H:%M UTC') }}">
+          <td class="text-muted small" style="white-space: nowrap;" title="{{ r.enriched_at.strftime('%Y-%m-%d %H:%M UTC') }}">
             {% if r.age_days == 0 %}Aujourd'hui
             {% elif r.age_days == 1 %}Hier
             {% else %}il y a {{ r.age_days }}j

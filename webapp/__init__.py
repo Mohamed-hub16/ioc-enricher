@@ -39,7 +39,7 @@ def create_app() -> Flask:
     login_manager.login_message = "Connectez-vous pour accéder à cette page."
     login_manager.login_message_category = "warning"
 
-    from .models import User  # noqa: F401
+    from .models import User, Comment  # noqa: F401
 
     @login_manager.user_loader
     def load_user(user_id: str):

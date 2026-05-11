@@ -95,3 +95,19 @@ class IOCRecord(db.Model):
     @property
     def is_malicious(self) -> bool:
         return (self.threat_score or 0) > 0
+
+
+class Comment(db.Model):
+    __tablename__ = "comments"
+
+    id = db.Column(db.Integer, primary_key=True)
+    ioc_record_id = db.Column(db.Integer, db.ForeignKey("ioc_records.id"), nullable=False, index=True)
+    author = db.Column(db.String(120), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    enriched_at_snapshot = db.Column(db.DateTime, nullable=False)
+
+    ioc_record = db.relationship(
+        "IOCRecord",
+        backref=db.backref("comments", order_by="Comment.created_at", lazy="dynamic"),
+    )

@@ -53,6 +53,16 @@
     <i class="bi bi-clock-history me-1"></i>Données de plus de 7 jours
   </span>
   {% endif %}
+  {% if current_user.is_authenticated and current_user.is_admin %}
+  <form method="post" action="{{ url_for('ioc.delete_ioc', value=record.value) }}"
+        class="ms-auto"
+        onsubmit="return confirm('Supprimer définitivement cet IOC et tous ses commentaires ?')">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-sm btn-outline-danger">
+      <i class="bi bi-trash3 me-1"></i>Supprimer
+    </button>
+  </form>
+  {% endif %}
 </div>
 
 <!-- Threat Score Gauge -->
@@ -245,6 +255,54 @@
   {% endfor %}
 </div>
 {% endif %}
+
+<!-- Comments Section -->
+{% set all_comments = record.comments.all() %}
+<div class="card mb-4">
+  <div class="card-header d-flex align-items-center gap-2 py-2">
+    <i class="bi bi-chat-left-text text-info"></i>
+    <strong class="small text-uppercase" style="letter-spacing:.5px">Commentaires des analystes</strong>
+    <span class="badge bg-secondary ms-auto">{{ all_comments | length }}</span>
+  </div>
+  <div class="card-body">
+    {% if all_comments %}
+    <div class="mb-3">
+      {% for comment in all_comments %}
+      <div class="mb-3 p-3 rounded" style="background:#0d1117; border-left: 3px solid #30363d;">
+        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+          <i class="bi bi-person-circle text-secondary"></i>
+          <span class="fw-semibold small text-info">{{ comment.author }}</span>
+          <span class="text-muted small">{{ comment.created_at.strftime('%d/%m/%Y à %H:%M UTC') }}</span>
+          {% if record.enriched_at > comment.enriched_at_snapshot %}
+          <span class="badge bg-warning text-dark ms-auto" title="Les données de cet IOC ont changé depuis ce commentaire">
+            <i class="bi bi-exclamation-triangle me-1"></i>IOC ré-enrichi depuis ce commentaire
+          </span>
+          {% endif %}
+        </div>
+        <p class="mb-0 small" style="white-space: pre-wrap; color: #c9d1d9;">{{ comment.content }}</p>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-muted small mb-3">Aucun commentaire pour cet IOC.</p>
+    {% endif %}
+
+    {% if current_user.is_authenticated and current_user.is_approved %}
+    <form method="post" action="{{ url_for('ioc.add_comment', value=record.value) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="mb-2">
+        <textarea name="content" class="form-control form-control-sm" rows="3"
+                  placeholder="Partagez votre analyse, accord ou désaccord avec l'évaluation..."
+                  required
+                  style="background:#0d1117; border-color:#30363d; color:#c9d1d9; resize:vertical;"></textarea>
+      </div>
+      <button type="submit" class="btn btn-sm btn-outline-info">
+        <i class="bi bi-send me-1"></i>Ajouter un commentaire
+      </button>
+    </form>
+    {% endif %}
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
