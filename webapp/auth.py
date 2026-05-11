@@ -1,10 +1,24 @@
 import os
+import re
+from urllib.parse import urlparse
 from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import login_user, logout_user, login_required, current_user
 from webapp import db
 from webapp.models import User
 
 auth_bp = Blueprint("auth", __name__)
+
+
+def _validate_password(password: str) -> str | None:
+    if len(password) < 12:
+        return "Le mot de passe doit faire au moins 12 caractères."
+    if not re.search(r"[A-Z]", password):
+        return "Le mot de passe doit contenir au moins une majuscule."
+    if not re.search(r"[0-9]", password):
+        return "Le mot de passe doit contenir au moins un chiffre."
+    if not re.search(r"[!@#$%^&*\-_=+]", password):
+        return "Le mot de passe doit contenir au moins un caractère spécial (!@#$%^&*-_=+)."
+    return None
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
@@ -21,7 +35,10 @@ def login():
             flash("Votre compte est en attente d'approbation par un administrateur.", "warning")
         else:
             login_user(user, remember=True)
-            return redirect(request.args.get("next") or url_for("ioc.index"))
+            next_url = request.args.get("next", "")
+            if next_url and urlparse(next_url).netloc == "":
+                return redirect(next_url)
+            return redirect(url_for("ioc.index"))
     return render_template("login.html")
 
 
@@ -35,8 +52,9 @@ def register():
         if not email or not password:
             flash("Email et mot de passe requis.", "danger")
             return render_template("register.html")
-        if len(password) < 8:
-            flash("Le mot de passe doit faire au moins 8 caractères.", "danger")
+        pwd_error = _validate_password(password)
+        if pwd_error:
+            flash(pwd_error, "danger")
             return render_template("register.html")
         if User.query.filter_by(email=email).first():
             flash("Cet email est déjà utilisé.", "danger")

@@ -136,6 +136,7 @@
   {% if current_user.is_authenticated and current_user.is_approved %}
   &nbsp;&middot;&nbsp;
   <form method="post" action="{{ url_for('ioc.enrich') }}" class="d-inline" id="reenrich-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="ioc" value="{{ record.value }}">
     <input type="hidden" name="force" value="1">
     <button type="submit" class="btn btn-link btn-sm p-0 text-warning text-decoration-none"

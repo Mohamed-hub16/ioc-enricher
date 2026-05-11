@@ -31,12 +31,14 @@
           <td class="pe-3">
             <div class="d-flex gap-2">
               <form method="post" action="{{ url_for('admin.approve', user_id=u.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn btn-sm btn-success">
                   <i class="bi bi-check-lg me-1"></i>Approuver
                 </button>
               </form>
               <form method="post" action="{{ url_for('admin.reject', user_id=u.id) }}"
                     onsubmit="return confirm('Supprimer le compte de {{ u.email }} ?')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn btn-sm btn-outline-danger">
                   <i class="bi bi-x-lg me-1"></i>Refuser
                 </button>
@@ -94,6 +96,7 @@
             {% if not u.is_admin and u.id != current_user.id %}
             <form method="post" action="{{ url_for('admin.revoke', user_id=u.id) }}"
                   onsubmit="return confirm('Révoquer l\'accès de {{ u.email }} ?')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button type="submit" class="btn btn-sm btn-outline-warning">
                 <i class="bi bi-slash-circle me-1"></i>Révoquer
               </button>

@@ -15,6 +15,7 @@
           Entrez une adresse IP, un nom de domaine ou un hash (MD5 / SHA1 / SHA256).
         </p>
         <form method="post" id="enrich-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="mb-4">
             <input type="text" name="ioc" class="form-control form-control-lg ioc-value"
                    placeholder="1.2.3.4  ·  example.com  ·  d41d8cd9..."

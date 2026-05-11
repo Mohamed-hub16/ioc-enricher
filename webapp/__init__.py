@@ -2,9 +2,11 @@ import os
 from flask import Flask, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
+from flask_wtf.csrf import CSRFProtect
 
 db = SQLAlchemy()
 login_manager = LoginManager()
+csrf = CSRFProtect()
 
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -15,13 +17,22 @@ def create_app() -> Flask:
     instance_dir = os.path.join(_BASE_DIR, "instance")
     os.makedirs(instance_dir, exist_ok=True)
 
+    secret_key = os.getenv("SECRET_KEY")
+    if not secret_key:
+        raise RuntimeError(
+            "SECRET_KEY environment variable is not set. "
+            "Generate one with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+
     app.config.update(
-        SECRET_KEY=os.getenv("SECRET_KEY", "dev-only-change-me"),
+        SECRET_KEY=secret_key,
         SQLALCHEMY_DATABASE_URI=f"sqlite:///{os.path.join(instance_dir, 'ioc_enricher.db')}",
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
+        WTF_CSRF_TIME_LIMIT=3600,
     )
 
     db.init_app(app)
+    csrf.init_app(app)
 
     login_manager.init_app(app)
     login_manager.login_view = "auth.login"

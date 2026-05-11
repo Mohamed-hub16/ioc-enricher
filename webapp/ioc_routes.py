@@ -1,8 +1,11 @@
 import ipaddress
+import logging
 import os
 from datetime import datetime
-from flask import Blueprint, render_template, redirect, url_for, flash, request
+from flask import Blueprint, render_template, redirect, url_for, flash, request, abort
 from flask_login import login_required, current_user
+
+logger = logging.getLogger(__name__)
 
 from webapp import db
 from webapp.models import IOCRecord
@@ -97,7 +100,10 @@ def index():
 
 
 @ioc_bp.route("/ioc/<path:value>")
+@login_required
 def detail(value: str):
+    if not current_user.is_approved:
+        abort(403)
     record = IOCRecord.query.filter_by(value=value).first_or_404()
     record.view_count = (record.view_count or 0) + 1
     db.session.commit()
@@ -151,7 +157,8 @@ def enrich():
             flash(str(exc), "danger")
             return render_template("enrich.html", prefill=value)
         except Exception as exc:
-            flash(f"Erreur lors de l'enrichissement : {exc}", "danger")
+            logger.error("Enrichment error for %r: %s", value, exc)
+            flash("Une erreur est survenue lors de l'enrichissement. Contactez un administrateur.", "danger")
             return render_template("enrich.html", prefill=value)
 
         # No data from any source: don't save, show info message
