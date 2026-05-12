@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}TTPs MITRE — IOC Enricher{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center gap-3 mb-4">
+  <a href="{{ url_for('ioc.index') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <div>
+    <h5 class="mb-0"><i class="bi bi-bullseye me-2 text-warning"></i>TTPs MITRE ATT&amp;CK observés</h5>
+    <p class="text-muted small mb-0">
+      Techniques rencontrées dans les IOCs analysés. Cliquer pour filtrer la base.
+    </p>
+  </div>
+</div>
+
+{% if rows %}
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table table-hover align-middle mb-0">
+      <thead style="background:#1c2128; font-size:.8rem; text-transform:uppercase; letter-spacing:.5px;">
+        <tr>
+          <th class="ps-3" style="width:150px;">Technique</th>
+          <th>Nom</th>
+          <th style="width:100px;">IOCs</th>
+          <th style="width:60px;"></th>
+          <th style="width:120px;">MITRE</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="ps-3">
+            <span class="badge bg-secondary font-monospace">{{ r.id }}</span>
+          </td>
+          <td class="small">{{ r.name or '—' }}</td>
+          <td>
+            <span class="fw-bold">{{ r.count }}</span>
+            <span class="text-muted small ms-1">IOC{{ 's' if r.count > 1 }}</span>
+          </td>
+          <td>
+            <a href="{{ url_for('ioc.index', ttp=r.id) }}"
+               class="btn btn-sm btn-outline-info" title="Filtrer la base">
+              <i class="bi bi-funnel"></i>
+            </a>
+          </td>
+          <td>
+            {% set base_tid = r.id.split('.')[0] %}
+            {% set sub = '/' + r.id.split('.')[1] if '.' in r.id else '' %}
+            <a href="https://attack.mitre.org/techniques/{{ base_tid }}{{ sub }}/"
+               target="_blank" rel="noopener" class="small text-info text-decoration-none">
+              <i class="bi bi-box-arrow-up-right"></i> attack.mitre.org
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="text-center py-5 text-muted">
+  <i class="bi bi-bullseye display-5 d-block mb-3"></i>
+  Aucun TTP encore extrait — enrichissez des IOCs malveillants avec Groq pour alimenter cette vue.
+</div>
+{% endif %}
+{% endblock %}

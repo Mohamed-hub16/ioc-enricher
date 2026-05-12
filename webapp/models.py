@@ -8,6 +8,9 @@ from webapp import db
 
 STALE_DAYS = 14
 
+# TLP 2.0 (FIRST.org, août 2022) — adopté CISA. Stocké tel quel.
+TLP_LEVELS = ("CLEAR", "GREEN", "AMBER", "AMBER+STRICT", "RED")
+
 
 class User(UserMixin, db.Model):
     __tablename__ = "users"
@@ -26,6 +29,8 @@ class User(UserMixin, db.Model):
     abuseipdb_key_enc  = db.Column(db.Text, nullable=True)
     urlscan_key_enc    = db.Column(db.Text, nullable=True)
     groq_key_enc       = db.Column(db.Text, nullable=True)
+    greynoise_key_enc  = db.Column(db.Text, nullable=True)
+    abuse_ch_key_enc   = db.Column(db.Text, nullable=True)
 
     def generate_rest_api_key(self) -> str:
         """Generate a new REST API token. Store its SHA-256 hash; return the plain token (shown once)."""
@@ -61,12 +66,14 @@ class User(UserMixin, db.Model):
         return bool(self.virustotal_key_enc)
 
     def set_api_keys(self, vt: str = "", abuse: str = "", urlscan: str = "",
-                     groq: str = "") -> None:
+                     groq: str = "", greynoise: str = "", abuse_ch: str = "") -> None:
         from src.crypto import encrypt
-        if vt:     self.virustotal_key_enc = encrypt(vt)
-        if abuse:  self.abuseipdb_key_enc  = encrypt(abuse)
-        if urlscan:self.urlscan_key_enc    = encrypt(urlscan)
-        if groq:   self.groq_key_enc       = encrypt(groq)
+        if vt:        self.virustotal_key_enc = encrypt(vt)
+        if abuse:     self.abuseipdb_key_enc  = encrypt(abuse)
+        if urlscan:   self.urlscan_key_enc    = encrypt(urlscan)
+        if groq:      self.groq_key_enc       = encrypt(groq)
+        if greynoise: self.greynoise_key_enc  = encrypt(greynoise)
+        if abuse_ch:  self.abuse_ch_key_enc   = encrypt(abuse_ch)
 
     def get_api_keys(self) -> dict:
         from src.crypto import decrypt
@@ -75,6 +82,8 @@ class User(UserMixin, db.Model):
             "ABUSEIPDB_API_KEY":  decrypt(self.abuseipdb_key_enc or ""),
             "URLSCAN_API_KEY":    decrypt(self.urlscan_key_enc or ""),
             "GROQ_API_KEY":       decrypt(self.groq_key_enc or ""),
+            "GREYNOISE_API_KEY":  decrypt(self.greynoise_key_enc or ""),
+            "ABUSE_CH_API_KEY":   decrypt(self.abuse_ch_key_enc or ""),
         }
 
 
@@ -83,19 +92,90 @@ class IOCRecord(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     value = db.Column(db.String(512), unique=True, nullable=False, index=True)
-    ioc_type = db.Column(db.String(10), nullable=False)
-    enriched_at = db.Column(db.DateTime, default=datetime.utcnow)
+    ioc_type = db.Column(db.String(10), nullable=False, index=True)
+    enriched_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     enriched_by = db.Column(db.String(120), nullable=True)
     raw_results = db.Column(db.Text, nullable=True)
     paragraph = db.Column(db.Text, nullable=True)
-    threat_score = db.Column(db.Integer, default=0, nullable=False, server_default="0")
+    threat_score = db.Column(db.Integer, default=0, nullable=False, server_default="0", index=True)
     view_count = db.Column(db.Integer, default=0, nullable=False, server_default="0")
+
+    # Sortie Groq structurée (verdict / family / ttps / confidence / actions)
+    structured_json = db.Column(db.Text, nullable=True)
+    # Champs extraits du JSON pour filtrage rapide
+    verdict = db.Column(db.String(20), nullable=True, index=True)
+    malware_family = db.Column(db.String(120), nullable=True, index=True)
+
+    # Score breakdown pour tooltip (JSON)
+    score_breakdown_json = db.Column(db.Text, nullable=True)
+
+    # TLP marking (FIRST.org 2.0). Défaut AMBER pour prudence (cf. audit/02_benchmark_C).
+    tlp = db.Column(db.String(15), nullable=False, default="AMBER", server_default="AMBER")
+
+    # Tags libres analystes (séparés par virgule, en interne JSON list)
+    tags_json = db.Column(db.Text, nullable=True)
 
     def get_results(self) -> list[dict]:
         return json.loads(self.raw_results) if self.raw_results else []
 
     def set_results(self, results: list[dict]) -> None:
         self.raw_results = json.dumps(results, ensure_ascii=False)
+
+    def get_structured(self) -> dict | None:
+        if not self.structured_json:
+            return None
+        try:
+            return json.loads(self.structured_json)
+        except Exception:
+            return None
+
+    def set_structured(self, data: dict | None) -> None:
+        if not data:
+            self.structured_json = None
+            self.verdict = None
+            self.malware_family = None
+            return
+        self.structured_json = json.dumps(data, ensure_ascii=False)
+        self.verdict = data.get("verdict")
+        self.malware_family = data.get("malware_family")
+
+    def get_score_breakdown(self) -> dict | None:
+        if not self.score_breakdown_json:
+            return None
+        try:
+            return json.loads(self.score_breakdown_json)
+        except Exception:
+            return None
+
+    def set_score_breakdown(self, data: dict | None) -> None:
+        if not data:
+            self.score_breakdown_json = None
+            return
+        self.score_breakdown_json = json.dumps(data, ensure_ascii=False)
+
+    def get_tags(self) -> list[str]:
+        if not self.tags_json:
+            return []
+        try:
+            return json.loads(self.tags_json)
+        except Exception:
+            return []
+
+    def set_tags(self, tags: list[str]) -> None:
+        if not tags:
+            self.tags_json = None
+        else:
+            clean = sorted({t.strip().lower() for t in tags if t.strip()})
+            self.tags_json = json.dumps(clean, ensure_ascii=False)
+
+    @property
+    def ttps(self) -> list[dict]:
+        s = self.get_structured()
+        return (s or {}).get("ttps") or []
+
+    @property
+    def ttp_ids(self) -> list[str]:
+        return [t.get("technique_id", "") for t in self.ttps if t.get("technique_id")]
 
     @property
     def age_days(self) -> int:

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Familles de malware — IOC Enricher{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center gap-3 mb-4">
+  <a href="{{ url_for('ioc.index') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <div>
+    <h5 class="mb-0"><i class="bi bi-bug me-2 text-danger"></i>Familles de malware observées</h5>
+    <p class="text-muted small mb-0">
+      Familles identifiées (MalwareBazaar / VT label / ThreatFox). Cliquer pour filtrer la base.
+    </p>
+  </div>
+</div>
+
+{% if rows %}
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table table-hover align-middle mb-0">
+      <thead style="background:#1c2128; font-size:.8rem; text-transform:uppercase; letter-spacing:.5px;">
+        <tr>
+          <th class="ps-3">Famille</th>
+          <th style="width:120px;">IOCs</th>
+          <th style="width:60px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="ps-3 fw-semibold">{{ r.family }}</td>
+          <td>
+            <span class="fw-bold">{{ r.count }}</span>
+            <span class="text-muted small ms-1">IOC{{ 's' if r.count > 1 }}</span>
+          </td>
+          <td>
+            <a href="{{ url_for('ioc.index', family=r.family) }}"
+               class="btn btn-sm btn-outline-info" title="Filtrer la base">
+              <i class="bi bi-funnel"></i>
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="text-center py-5 text-muted">
+  <i class="bi bi-bug display-5 d-block mb-3"></i>
+  Aucune famille encore identifiée. Enrichissez des hashes avec MalwareBazaar / Groq.
+</div>
+{% endif %}
+{% endblock %}

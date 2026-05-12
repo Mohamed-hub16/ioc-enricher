@@ -36,9 +36,16 @@ def _ioc_to_dict(record: IOCRecord, include_raw: bool = False) -> dict:
         "enriched_by": record.enriched_by,
         "is_stale": record.is_stale,
         "paragraph": record.paragraph,
+        "verdict": record.verdict,
+        "malware_family": record.malware_family,
+        "tlp": record.tlp,
+        "tags": record.get_tags(),
+        "ttps": record.ttps,
+        "structured": record.get_structured(),
     }
     if include_raw:
         d["raw_results"] = record.get_results()
+        d["score_breakdown"] = record.get_score_breakdown()
     return d
 
 
@@ -47,12 +54,25 @@ def _ioc_to_dict(record: IOCRecord, include_raw: bool = False) -> dict:
 def list_iocs():
     """List IOCs with optional filters.
 
-    Query params: q, type (ip|domain|hash), min_score, sort (date|score|views),
-                  page (default 1), per_page (default 50, max 200).
+    Query params:
+      q            — substring match on value
+      type         — ip | domain | hash
+      min_score    — int 0–100
+      verdict      — malicious | suspicious | legitimate | inconclusive
+      family       — exact malware family (case-sensitive)
+      ttp          — MITRE technique id (T1059, T1059.001) — filtered in Python
+      tag          — analyst tag (case-insensitive)
+      sort         — date | score | views
+      page         — default 1
+      per_page     — default 50, max 200
     """
     q = request.args.get("q", "").strip()
     ioc_type = request.args.get("type", "").strip().lower()
     min_score = request.args.get("min_score", type=int)
+    verdict = request.args.get("verdict", "").strip().lower()
+    family = request.args.get("family", "").strip()
+    ttp = request.args.get("ttp", "").strip().upper()
+    tag = request.args.get("tag", "").strip().lower()
     sort = request.args.get("sort", "date")
 
     try:
@@ -68,6 +88,10 @@ def list_iocs():
         query = query.filter(IOCRecord.ioc_type == ioc_type)
     if min_score is not None:
         query = query.filter(IOCRecord.threat_score >= min_score)
+    if verdict in ("malicious", "suspicious", "legitimate", "inconclusive"):
+        query = query.filter(IOCRecord.verdict == verdict)
+    if family:
+        query = query.filter(IOCRecord.malware_family == family)
 
     if sort == "score":
         query = query.order_by(IOCRecord.threat_score.desc())
@@ -76,8 +100,23 @@ def list_iocs():
     else:
         query = query.order_by(IOCRecord.enriched_at.desc())
 
-    total = query.count()
-    records = query.offset((page - 1) * per_page).limit(per_page).all()
+    # Python-side filtering for TTP / tag (JSON columns)
+    if ttp or tag:
+        candidates = query.limit(2000).all()
+        out = []
+        for r in candidates:
+            if ttp:
+                if ttp not in r.ttp_ids and not any(t.startswith(ttp + ".") for t in r.ttp_ids):
+                    continue
+            if tag and tag not in (r.get_tags() or []):
+                continue
+            out.append(r)
+        total = len(out)
+        start = (page - 1) * per_page
+        records = out[start:start + per_page]
+    else:
+        total = query.count()
+        records = query.offset((page - 1) * per_page).limit(per_page).all()
 
     return jsonify({
         "total": total,
@@ -113,50 +152,34 @@ def enrich_ioc():
         return jsonify({"error": "Missing 'ioc' field in request body"}), 400
 
     from src.parsers.ioc_parser import parse_iocs
-    from webapp.ioc_routes import _all_sources_failed, _enrich_ioc, _is_private_ioc
+    from webapp.ioc_routes import _all_sources_failed, _enrich_ioc, _is_private_ioc, _persist_enrichment
 
     iocs, _ = parse_iocs([value])
     if not iocs:
         return jsonify({"error": f"Unrecognized IOC: {value!r}"}), 400
-
+    # Use refanged + normalized value for storage
+    normalized_value = iocs[0].value
     ioc_type = iocs[0].type
-    if _is_private_ioc(value, ioc_type):
+
+    if _is_private_ioc(normalized_value, ioc_type):
         return jsonify({"error": "Private or local address — no public intel available"}), 422
 
-    existing = IOCRecord.query.filter_by(value=value).first()
+    existing = IOCRecord.query.filter_by(value=normalized_value).first()
     if existing and not force and not existing.is_stale:
         return jsonify({"cached": True, **_ioc_to_dict(existing, include_raw=True)}), 200
 
     keys = g.api_user.get_api_keys()
     try:
-        ioc_type, raw, paragraph, threat_score = _enrich_ioc(value, keys=keys)
+        bundle = _enrich_ioc(normalized_value, keys=keys)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception:
         return jsonify({"error": "Enrichment failed — check server logs"}), 500
 
-    if _all_sources_failed(raw):
+    if _all_sources_failed(bundle["raw"]):
         return jsonify({"error": "No source returned data for this IOC"}), 422
 
-    now = datetime.utcnow()
-    if existing:
-        existing.enriched_at = now
-        existing.enriched_by = g.api_user.email
-        existing.set_results(raw)
-        existing.paragraph = paragraph
-        existing.threat_score = threat_score
-        record = existing
-    else:
-        record = IOCRecord(
-            value=value,
-            ioc_type=ioc_type,
-            enriched_by=g.api_user.email,
-            paragraph=paragraph,
-            threat_score=threat_score,
-        )
-        record.set_results(raw)
-        db.session.add(record)
-
+    record = _persist_enrichment(normalized_value, bundle, g.api_user.email, existing)
     db.session.commit()
     return jsonify({"cached": False, **_ioc_to_dict(record, include_raw=True)}), 201
 

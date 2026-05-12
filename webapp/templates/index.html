@@ -9,14 +9,17 @@
     </h5>
     <form method="get" action="{{ url_for('ioc.index') }}" class="d-flex gap-2">
       <input type="hidden" name="filter" value="{{ filt }}">
+      {% for k, v in active_pivots.items() %}
+        {% if k not in ['q'] %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endif %}
+      {% endfor %}
       <input type="text" name="q" class="form-control ioc-value"
-             placeholder="Rechercher une IP, domaine, hash..."
+             placeholder="Rechercher IP, domaine, hash, ou défang (hxxp://e[.]vil)..."
              value="{{ q }}">
       <button type="submit" class="btn btn-outline-info px-3">
         <i class="bi bi-search"></i>
       </button>
       {% if q %}
-      <a href="{{ url_for('ioc.index', filter=filt) }}" class="btn btn-outline-secondary">
+      <a href="{{ url_for('ioc.index', filter=filt, **active_pivots) }}" class="btn btn-outline-secondary">
         <i class="bi bi-x-lg"></i>
       </a>
       {% endif %}
@@ -34,20 +37,44 @@
   {% endif %}
 </div>
 
+<!-- Active pivot chips -->
+{% if active_pivots %}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+  <span class="text-muted small me-1"><i class="bi bi-funnel me-1"></i>Filtres :</span>
+  {% set _LABELS = {
+    'ttp': 'TTP', 'family': 'Famille', 'verdict': 'Verdict',
+    'tag': 'Tag', 'asn': 'ASN', 'country': 'Pays', 'type': 'Type',
+  } %}
+  {% for k, v in active_pivots.items() %}
+    {% set others = active_pivots.copy() %}
+    {% set _ = others.pop(k) %}
+    <span class="badge bg-info text-dark d-inline-flex align-items-center gap-2">
+      <strong>{{ _LABELS.get(k, k) }}</strong> · {{ v }}
+      <a href="{{ url_for('ioc.index', q=q, filter=filt, sort=sort, **others) }}"
+         class="text-dark text-decoration-none" title="Retirer ce filtre">
+        <i class="bi bi-x-lg"></i>
+      </a>
+    </span>
+  {% endfor %}
+  <a href="{{ url_for('ioc.index', q=q, filter=filt, sort=sort) }}"
+     class="btn btn-sm btn-link text-muted text-decoration-none">Tout effacer</a>
+</div>
+{% endif %}
+
 <!-- Filter tabs + sort -->
 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
-  <div class="d-flex gap-2">
-    <a href="{{ url_for('ioc.index', q=q, filter='all', sort=sort) }}"
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('ioc.index', q=q, filter='all', sort=sort, **active_pivots) }}"
        class="btn btn-sm {% if filt == 'all' %}btn-secondary{% else %}btn-outline-secondary{% endif %}">
       <i class="bi bi-list-ul me-1"></i>Tous
       <span class="badge bg-dark ms-1">{{ counts.all }}</span>
     </a>
-    <a href="{{ url_for('ioc.index', q=q, filter='malicious', sort=sort) }}"
+    <a href="{{ url_for('ioc.index', q=q, filter='malicious', sort=sort, **active_pivots) }}"
        class="btn btn-sm {% if filt == 'malicious' %}btn-danger{% else %}btn-outline-danger{% endif %}">
       <i class="bi bi-exclamation-triangle me-1"></i>Malveillants
       <span class="badge {% if filt == 'malicious' %}bg-dark{% else %}bg-danger{% endif %} ms-1">{{ counts.malicious }}</span>
     </a>
-    <a href="{{ url_for('ioc.index', q=q, filter='legitimate', sort=sort) }}"
+    <a href="{{ url_for('ioc.index', q=q, filter='legitimate', sort=sort, **active_pivots) }}"
        class="btn btn-sm {% if filt == 'legitimate' %}btn-success{% else %}btn-outline-success{% endif %}">
       <i class="bi bi-shield-check me-1"></i>Légitimes
       <span class="badge {% if filt == 'legitimate' %}bg-dark{% else %}bg-success{% endif %} ms-1">{{ counts.legitimate }}</span>
@@ -55,15 +82,15 @@
   </div>
   <div class="d-flex align-items-center gap-1">
     <span class="text-muted small me-1"><i class="bi bi-sort-down me-1"></i>Trier :</span>
-    <a href="{{ url_for('ioc.index', q=q, filter=filt, sort='date') }}"
+    <a href="{{ url_for('ioc.index', q=q, filter=filt, sort='date', **active_pivots) }}"
        class="btn btn-sm {% if sort == 'date' %}btn-outline-info active{% else %}btn-outline-secondary{% endif %}">
       <i class="bi bi-calendar3 me-1"></i>Date
     </a>
-    <a href="{{ url_for('ioc.index', q=q, filter=filt, sort='score') }}"
+    <a href="{{ url_for('ioc.index', q=q, filter=filt, sort='score', **active_pivots) }}"
        class="btn btn-sm {% if sort == 'score' %}btn-outline-info active{% else %}btn-outline-secondary{% endif %}">
       <i class="bi bi-speedometer2 me-1"></i>Score
     </a>
-    <a href="{{ url_for('ioc.index', q=q, filter=filt, sort='views') }}"
+    <a href="{{ url_for('ioc.index', q=q, filter=filt, sort='views', **active_pivots) }}"
        class="btn btn-sm {% if sort == 'views' %}btn-outline-info active{% else %}btn-outline-secondary{% endif %}">
       <i class="bi bi-eye me-1"></i>Vues
     </a>
@@ -72,15 +99,17 @@
 
 {% if records %}
 <div class="card">
-  <div class="card-body p-0">
-    <table class="table table-hover align-middle mb-0" style="table-layout: fixed; width: 100%;">
-      <thead style="background-color: #1c2128; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px;">
+  <div class="card-body p-0 table-responsive">
+    <table class="table table-hover align-middle mb-0" style="table-layout: auto; width: 100%; font-size:.88rem;">
+      <thead style="background-color: #1c2128; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.5px;">
         <tr>
-          <th class="ps-3" style="width: 26%;">IOC</th>
-          <th style="width: 72px;">Type</th>
-          <th style="width: 115px;">Score</th>
+          <th class="ps-3" style="min-width:200px;">IOC</th>
+          <th style="width: 70px;">Type</th>
+          <th style="width: 110px;">Score</th>
+          <th style="width: 110px;">Verdict</th>
+          <th style="min-width:140px;">Famille / TTPs</th>
           <th>Sources</th>
-          <th style="width: 120px;">Enrichi par</th>
+          <th style="width: 80px;">TLP</th>
           <th style="width: 110px;">Date</th>
           <th style="width: 55px;" title="Nombre de consultations de la fiche">Vues</th>
           <th style="width: 48px;"></th>
@@ -89,7 +118,7 @@
       <tbody>
         {% for r in records %}
         <tr>
-          <td class="ps-3" style="overflow: hidden; max-width: 0;">
+          <td class="ps-3" style="max-width: 360px; overflow: hidden;">
             <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
               <a href="{{ url_for('ioc.detail', value=r.value) }}"
                  class="ioc-value text-decoration-none text-light fw-medium"
@@ -97,46 +126,95 @@
                 {{ r.value }}
               </a>
               {% if r.is_stale %}
-              <span class="badge bg-secondary ms-1 fw-normal" title="Données de plus de 7 jours">
+              <span class="badge bg-secondary ms-1 fw-normal" title="Données de plus de {{ STALE_DAYS }} jours">
                 stale
               </span>
               {% endif %}
             </div>
+            {% set tags = r.get_tags() %}
+            {% if tags %}
+            <div class="mt-1">
+              {% for t in tags[:4] %}
+              <a href="{{ url_for('ioc.index', tag=t) }}"
+                 class="badge bg-dark border text-decoration-none me-1"
+                 style="font-size:.7rem;">#{{ t }}</a>
+              {% endfor %}
+            </div>
+            {% endif %}
           </td>
           <td>
-            <span class="badge badge-{{ r.ioc_type }}">{{ r.ioc_type }}</span>
+            <a href="{{ url_for('ioc.index', type=r.ioc_type) }}"
+               class="badge badge-{{ r.ioc_type }} text-decoration-none">{{ r.ioc_type }}</a>
           </td>
-          <td style="min-width: 110px;">
+          <td>
             {% set s = [r.threat_score or 0, 100] | min %}
-            {% if s == 0 %}
-              {% set sc = '#2ea043' %}
-            {% elif s <= 30 %}
-              {% set sc = '#d29922' %}
-            {% elif s <= 70 %}
-              {% set sc = '#fd7e14' %}
-            {% else %}
-              {% set sc = '#da3633' %}
-            {% endif %}
+            {% if s == 0 %}{% set sc = '#2ea043' %}
+            {% elif s <= 30 %}{% set sc = '#d29922' %}
+            {% elif s <= 70 %}{% set sc = '#fd7e14' %}
+            {% else %}{% set sc = '#da3633' %}{% endif %}
             <div class="d-flex align-items-center gap-2">
-              <span class="fw-bold ioc-value small" style="color: {{ sc }}; min-width: 32px;">
-                {{ s }}
-              </span>
-              <div style="flex:1; background:#0d1117; border-radius:4px; height:6px; overflow:hidden;">
+              <span class="fw-bold ioc-value small" style="color: {{ sc }}; min-width: 32px;">{{ s }}</span>
+              <div style="flex:1; background:#0d1117; border-radius:4px; height:6px; overflow:hidden; min-width:50px;">
                 <div style="width:{{ [s,3]|max }}%; height:100%; background:{{ sc }}; border-radius:4px;"></div>
               </div>
             </div>
           </td>
           <td>
+            {% if r.verdict == 'malicious' %}
+              <a href="{{ url_for('ioc.index', verdict='malicious') }}" class="badge bg-danger text-decoration-none">malicious</a>
+            {% elif r.verdict == 'suspicious' %}
+              <a href="{{ url_for('ioc.index', verdict='suspicious') }}" class="badge bg-warning text-dark text-decoration-none">suspicious</a>
+            {% elif r.verdict == 'legitimate' %}
+              <a href="{{ url_for('ioc.index', verdict='legitimate') }}" class="badge bg-success text-decoration-none">legitimate</a>
+            {% elif r.verdict == 'inconclusive' %}
+              <span class="badge bg-secondary">inconclusive</span>
+            {% else %}
+              <span class="text-muted small">—</span>
+            {% endif %}
+          </td>
+          <td class="small">
+            {% if r.malware_family %}
+              <a href="{{ url_for('ioc.index', family=r.malware_family) }}"
+                 class="text-warning text-decoration-none fw-semibold">
+                <i class="bi bi-bug me-1"></i>{{ r.malware_family }}
+              </a>
+              <br>
+            {% endif %}
+            {% set ttp_ids = r.ttp_ids %}
+            {% if ttp_ids %}
+              {% for t in ttp_ids[:3] %}
+              <a href="{{ url_for('ioc.index', ttp=t) }}"
+                 class="badge bg-dark border text-decoration-none me-1"
+                 style="font-size:.7rem;">{{ t }}</a>
+              {% endfor %}
+              {% if ttp_ids|length > 3 %}<span class="text-muted small">+{{ ttp_ids|length - 3 }}</span>{% endif %}
+            {% elif not r.malware_family %}
+              <span class="text-muted small">—</span>
+            {% endif %}
+          </td>
+          <td>
             {% for res in r.get_results() %}
               {% if not res['error'] %}
-              <span class="badge bg-dark border me-1" style="font-size: 0.75rem;">
+              <span class="badge bg-dark border me-1 mb-1" style="font-size: 0.7rem;">
                 {{ res['source'] }}
               </span>
               {% endif %}
             {% endfor %}
           </td>
-          <td class="text-muted small">{{ r.enriched_by or '—' }}</td>
-          <td class="text-muted small" style="white-space: nowrap;" title="{{ r.enriched_at.strftime('%Y-%m-%d %H:%M UTC') }}">
+          <td>
+            {% if r.tlp == 'RED' %}
+              <span class="badge" style="background:#da3633; color:#fff; font-size:.7rem;">{{ r.tlp }}</span>
+            {% elif r.tlp == 'AMBER+STRICT' %}
+              <span class="badge" style="background:#fd7e14; color:#000; font-size:.7rem;">AMBER+S</span>
+            {% elif r.tlp == 'AMBER' %}
+              <span class="badge" style="background:#d29922; color:#000; font-size:.7rem;">{{ r.tlp }}</span>
+            {% elif r.tlp == 'GREEN' %}
+              <span class="badge" style="background:#2ea043; color:#fff; font-size:.7rem;">{{ r.tlp }}</span>
+            {% else %}
+              <span class="badge bg-light text-dark" style="font-size:.7rem;">{{ r.tlp or 'AMBER' }}</span>
+            {% endif %}
+          </td>
+          <td class="text-muted small" style="white-space: nowrap;" title="{{ r.enriched_at.strftime('%Y-%m-%d %H:%M UTC') }} — par {{ r.enriched_by or 'inconnu' }}">
             {% if r.age_days == 0 %}Aujourd'hui
             {% elif r.age_days == 1 %}Hier
             {% else %}il y a {{ r.age_days }}j
@@ -158,11 +236,13 @@
   </div>
 </div>
 
-{% elif q %}
+{% elif q or active_pivots %}
 <div class="text-center py-5 text-muted">
   <i class="bi bi-search display-5 d-block mb-3"></i>
-  Aucun résultat pour <strong class="ioc-value">{{ q }}</strong>
-  {% if current_user.is_authenticated and current_user.is_approved %}
+  Aucun résultat
+  {% if q %}pour <strong class="ioc-value">{{ q }}</strong>{% endif %}
+  {% if active_pivots %}avec les filtres actifs{% endif %}.
+  {% if q and current_user.is_authenticated and current_user.is_approved %}
   <div class="mt-3">
     <a href="{{ url_for('ioc.enrich', ioc=q) }}" class="btn btn-info">
       <i class="bi bi-plus-circle me-1"></i>Enrichir cet IOC

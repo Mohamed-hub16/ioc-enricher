@@ -1,11 +1,26 @@
-"""Groq-based SOC narrative synthesizer (free tier)."""
+"""Groq-based SOC narrative + structured output synthesizer.
 
+Two entry points :
+  - `synthesize(results, threat_score)` : retourne juste le paragraphe (texte FR).
+    Rétro-compatible avec le CLI.
+  - `synthesize_full(results, threat_score)` : retourne le paragraphe **et** un
+    dict structuré { verdict, malware_family, ttps, confidence, ... }
+    via le JSON mode de Groq (`response_format={"type": "json_object"}`).
+"""
+
+import json
 import os
 from src.models import EnrichmentResult
 
+_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# System prompts — paragraphe SOC (legacy, conservés)
+# ─────────────────────────────────────────────────────────────────────────────
+
 _SYSTEM_IP_MALICIOUS = """Tu es un analyste CERT/SOC sénior rédigeant un rapport de threat intelligence opérationnel. \
-Tu reçois des données sur une adresse IP extraites de AbuseIPDB, VirusTotal, ip-api.com et urlscan.io. \
-Le score de menace est supérieur à 0.
+Tu reçois des données sur une adresse IP extraites de AbuseIPDB, VirusTotal, ip-api.com, urlscan.io, \
+Shodan InternetDB, GreyNoise, URLhaus et ThreatFox. Le score de menace est supérieur à 0.
 
 Rédige UN SEUL paragraphe analytique dense en français (8 à 12 phrases). \
 Ne commence JAMAIS par "L'IOC", "L'adresse IP X est..." ou toute formulation générique. \
@@ -16,8 +31,9 @@ Couvre dans cet ordre, si les données le permettent :
 
 1. INFRASTRUCTURE — ASN exact (numéro + nom), opérateur, type d'hébergement (datacenter, bulletproof, \
 résidentiel, Tor exit, VPN, proxy...), pays, ville, bloc CIDR, registre Internet (RIPE/ARIN/APNIC). \
-Si incohérence géographique entre geo et RIPE, ou enregistrement récent du bloc → signale-le \
-comme marqueur d'infrastructure bulletproof ou de montage rapide.
+Si Shodan InternetDB révèle des ports/CVE notables, mentionne-les (ex : SMB exposé + CVE-2017-0144). \
+Si GreyNoise classe l'IP en "noise" → indique qu'il s'agit d'un scanner Internet de masse ; \
+si GreyNoise indique "RIOT" → service légitime connu (anomalie).
 
 2. ABUSEIPDB — score exact (%), nombre total de signalements, nombre de sources distinctes, \
 catégories d'abus (SSH Brute-Force, Web App Attack, Port Scan, DDoS, Phishing...). \
@@ -27,14 +43,17 @@ Si des signalements sont actifs au moment de l'analyse, précise-le explicitemen
 représentatifs et leurs verdicts (phishing, C2, malware, scanner) — pas tous les éditeurs. \
 Mentionne la réputation VT et les tags si significatifs.
 
-4. CONTEXTE ET ATTRIBUTION — exploite crowdsourced_context (GreyNoise, Cisco Talos, SOCRadar, \
+4. THREATFOX / URLhaus — si présents, cite la famille de malware (ex: "tagué Cobalt Strike"), \
+le nombre d'URLs malveillantes en ligne, et les tags de campagne.
+
+5. CONTEXTE ET ATTRIBUTION — exploite crowdsourced_context (GreyNoise, Cisco Talos, SOCRadar, \
 Cyble, Cluster25...) pour qualifier l'activité : scanning actif, C2 connu, campagne identifiée, \
 acteur de menace associé, CVE exploitées. Cite les sources nommément.
 
-5. RÈGLES IDS — si des règles Suricata/Snort ont matché, cite les patterns d'attaque, \
+6. RÈGLES IDS — si des règles Suricata/Snort ont matché, cite les patterns d'attaque, \
 les CVE référencées, les protocoles ciblés.
 
-6. FICHIERS ASSOCIÉS — si des fichiers communicants sont présents, mentionne leur nature \
+7. FICHIERS ASSOCIÉS — si des fichiers communicants sont présents, mentionne leur nature \
 (stealer, dropper, RAT...) et leur ratio de détection.
 
 INTERDICTIONS : N'énumère pas tous les éditeurs VT. N'invente pas d'informations absentes.
@@ -50,13 +69,14 @@ Ne commence pas par "L'IOC" — commence directement par l'appartenance réseau 
 NE FOURNIS AUCUNE RECOMMANDATION.
 
 Inclure si disponible : organisation, ASN, pays, bloc CIDR, type d'usage (cloud, CDN, FAI, entreprise). \
-Confirmer l'absence de détections : score AbuseIPDB (0%) et ratio VirusTotal (0/N). \
+Si GreyNoise renvoie un statut RIOT (service légitime connu) ou la classification "benign", \
+mentionne-le. Confirmer l'absence de détections : score AbuseIPDB (0%) et ratio VirusTotal (0/N). \
 NE mentionne pas de patterns d'attaque, CVE, IDS ou contextes malveillants.
 
 Style : factuel, neutre, vocabulaire SOC. Un seul paragraphe, pas de listes."""
 
 _SYSTEM_DOMAIN_MALICIOUS = """Tu es un analyste CERT/SOC sénior rédigeant un rapport de threat intelligence opérationnel. \
-Tu reçois des données sur un nom de domaine extraites de VirusTotal, urlscan.io et MXToolBox. \
+Tu reçois des données sur un nom de domaine extraites de VirusTotal, urlscan.io, URLhaus et ThreatFox. \
 Le score de menace est supérieur à 0.
 
 Rédige UN SEUL paragraphe analytique dense en français (7 à 10 phrases). \
@@ -74,14 +94,15 @@ Signale l'usage d'un privacy guard ou registrant anonymisé.
 (phishing, malware, C2, typosquatting...), réputation VT (score négatif = suspect), tags. \
 Cite 4 à 6 éditeurs représentatifs, pas tous.
 
-3. WHOIS ET CONTEXTE — si des données WHOIS sont disponibles, utilise-les pour qualifier \
+3. URLHAUS / THREATFOX — si présents : nombre d'URLs malveillantes (online vs offline), \
+famille de malware distribuée (ex: "distribue Emotet depuis 2024-10"), tags de campagne, \
+références d'attribution.
+
+4. WHOIS ET CONTEXTE — si des données WHOIS sont disponibles, utilise-les pour qualifier \
 le registrant, la cohérence avec l'usage prétendu, et d'éventuels patterns de registration en masse.
 
-4. ACTIVITÉ OBSERVÉE — si urlscan.io a des scans récents, décris ce que le domaine héberge \
+5. ACTIVITÉ OBSERVÉE — si urlscan.io a des scans récents, décris ce que le domaine héberge \
 (page de phishing, redirecteur, C2 panel, dropper...). Mentionne les domaines liés.
-
-5. LISTES NOIRES ET IDS — si blacklisté (MXToolBox), cite les listes. \
-Si des règles Suricata/Snort ont matché, cite les patterns d'attaque détectés.
 
 INTERDICTIONS : N'énumère pas tous les éditeurs VT. N'invente pas d'informations absentes.
 
@@ -101,7 +122,7 @@ NE mentionne pas de patterns d'attaque, CVE ou contextes malveillants.
 Style : factuel, neutre, vocabulaire SOC. Un seul paragraphe, pas de listes."""
 
 _SYSTEM_HASH_MALICIOUS = """Tu es un analyste CERT/SOC sénior rédigeant une fiche de threat intelligence opérationnelle. \
-Tu reçois les données complètes VirusTotal d'un fichier malveillant. \
+Tu reçois les données complètes VirusTotal + MalwareBazaar + ThreatFox d'un fichier malveillant. \
 Ton rôle est de SYNTHÉTISER et ANALYSER — pas d'énumérer mécaniquement les données brutes.
 
 Rédige UN SEUL paragraphe analytique dense en français (10 à 14 phrases), dans le style d'un rapport \
@@ -115,17 +136,19 @@ de première et dernière soumission, nombre total de soumissions. Compare le no
 le fichier se présente (OriginalFilename, ProductName exiftool) avec son comportement réel : \
 si incohérence, identifie explicitement la technique de masquage (MITRE T1036 – Masquerading).
 
-2. DÉTECTION ET FAMILLE DE MENACE — ratio VirusTotal exact (ex : "69 moteurs sur 75"), niveau \
-de confiance, famille principale de malware. Cite UNIQUEMENT les 4 à 6 éditeurs les plus \
-représentatifs (EDR majeurs, ESET, Kaspersky, Microsoft, CrowdStrike…) et les labels de menace \
-les plus précis — N'ÉNUMÈRE PAS les 40+ éditeurs, c'est du bruit.
+2. FAMILLE DE MENACE — si MalwareBazaar ou ThreatFox renvoient une signature (ex: "Lockbit", \
+"Emotet", "Cobalt Strike"), mentionne-la explicitement en premier. Sinon dériver de la \
+popular_threat_label VT. Ratio VirusTotal exact (ex : "69 moteurs sur 75"). \
+Cite UNIQUEMENT les 4 à 6 éditeurs les plus représentatifs (EDR majeurs, ESET, Kaspersky, \
+Microsoft, CrowdStrike…) et les labels de menace les plus précis — \
+N'ÉNUMÈRE PAS les 40+ éditeurs, c'est du bruit.
 
 3. SIGNATURE NUMÉRIQUE — signée ou non, signataire prétendu, émetteur du certificat, \
 statut de validation. Une signature invalide ou absente sur un fichier se réclamant d'un éditeur \
 légitime est un signal fort de falsification.
 
 4. COMPORTEMENT ET TTPs — à partir des verdicts sandbox (cite les sandboxes par leur nom : \
-Zenbox, Lastline, Tencent HABO, SecneurX, C2AE…), des règles YARA et des labels de menace, \
+Triage, Zenbox, Lastline, Tencent HABO, SecneurX, C2AE…), des règles YARA et des labels de menace, \
 décris CE QUE FAIT concrètement le malware : chiffrement, exfiltration, persistance, \
 élévation de privilèges, injection de processus, propagation réseau, exploitation de CVE. \
 Mappe aux TTPs MITRE ATT&CK pertinents avec leur identifiant (ex : T1486 – Data Encrypted \
@@ -168,15 +191,58 @@ Ces sections ne sont pas pertinentes pour un fichier légitime.
 Style : factuel, précis, vocabulaire SOC standard. Un seul paragraphe fluide, pas de listes ni de titres."""
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# System prompt — JSON structuré (mode strict)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_SYSTEM_STRUCTURED = """Tu es un analyste CERT/SOC qui produit UNIQUEMENT du JSON valide.
+
+Schéma OBLIGATOIRE (toutes les clés doivent être présentes, tableaux vides autorisés) :
+
+{
+  "verdict":          "malicious" | "suspicious" | "legitimate" | "inconclusive",
+  "malware_family":   "string ou null — ex: 'Lockbit 3.0', 'Emotet', 'Cobalt Strike'",
+  "campaign_or_actor": "string ou null — ex: 'APT28', 'campagne Lazarus oct-2025'",
+  "ttps": [
+    {"technique_id": "T1486", "name": "Data Encrypted for Impact"}
+  ],
+  "iocs_observed": [
+    {"type": "ip|domain|hash|url", "value": "...", "context": "C2 server | dropper | etc"}
+  ],
+  "key_observations": ["string", "string", ...],
+  "recommended_actions": ["string", "string", ...],
+  "confidence": 0.0
+}
+
+CONSIGNES :
+- `verdict` reflète l'analyse globale (pas juste le score numérique).
+- `malware_family` : nom canonique de famille SEULEMENT si attesté par VT/MalwareBazaar/ThreatFox/YARA.
+  Sinon null. Pas d'attribution conjecturale.
+- `campaign_or_actor` : SEULEMENT si attesté nommément dans crowdsourced_context / threatfox_tags. Sinon null.
+- `ttps` : entre 0 et 12 entrées, identifiants ATT&CK valides (Txxxx ou Txxxx.yyy). Inclure les
+  techniques implicites (ex: malware ransomware → T1486 même si pas explicite).
+- `iocs_observed` : extraire les IPs/domaines/hashes/URLs présents dans `contacted_*`,
+  `dropped_files`, `relationships`. Max 10 entrées.
+- `key_observations` : 3-6 bullets factuels, en français, max 25 mots chacun.
+- `recommended_actions` : 2-5 actions concrètes (block_ip, hunt_imphash_in_edr, etc), en français.
+- `confidence` : 0.0–1.0. 0.95+ si famille attestée par sandbox + AV consensus. <0.5 si peu de données.
+
+Réponds UNIQUEMENT par le JSON, sans markdown ni commentaire."""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Context builder (shared)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_LEGITIMATE_EXCLUDE = {
+    "crowdsourced_context", "ids_rules", "communicating_files",
+    "malicious_vendors", "threat_labels", "abuse_categories",
+}
+
+
 def _format_context(results: list[EnrichmentResult], is_malicious: bool) -> str:
     ioc = results[0].ioc
     lines = [f"IOC : {ioc.value}  (type : {ioc.type})", ""]
-
-    # Fields to exclude for legitimate IOCs (not relevant, avoids confusing the LLM)
-    _LEGITIMATE_EXCLUDE = {
-        "crowdsourced_context", "ids_rules", "communicating_files",
-        "malicious_vendors", "threat_labels", "abuse_categories",
-    }
 
     for r in results:
         lines.append(f"=== {r.source} ===")
@@ -208,25 +274,35 @@ def _format_context(results: list[EnrichmentResult], is_malicious: bool) -> str:
     return "\n".join(lines)
 
 
-def synthesize(results: list[EnrichmentResult], threat_score: int = 0, groq_key: str = "") -> str | None:
+def _pick_paragraph_prompt(ioc_type: str, is_malicious: bool) -> str:
+    if ioc_type == "hash":
+        return _SYSTEM_HASH_MALICIOUS if is_malicious else _SYSTEM_HASH_LEGITIMATE
+    if ioc_type == "ip":
+        return _SYSTEM_IP_MALICIOUS if is_malicious else _SYSTEM_IP_LEGITIMATE
+    return _SYSTEM_DOMAIN_MALICIOUS if is_malicious else _SYSTEM_DOMAIN_LEGITIMATE
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Public API
+# ─────────────────────────────────────────────────────────────────────────────
+
+def synthesize(results: list[EnrichmentResult], threat_score: int = 0,
+               groq_key: str = "") -> str | None:
+    """Renvoie un paragraphe d'analyse SOC en français (texte). None si Groq KO."""
     api_key = groq_key or os.getenv("GROQ_API_KEY")
     if not api_key:
         return None
     try:
         from groq import Groq
+
         is_malicious = threat_score > 0
         ioc_type = results[0].ioc.type if results else "ip"
-        if ioc_type == "hash":
-            system_prompt = _SYSTEM_HASH_MALICIOUS if is_malicious else _SYSTEM_HASH_LEGITIMATE
-        elif ioc_type == "ip":
-            system_prompt = _SYSTEM_IP_MALICIOUS if is_malicious else _SYSTEM_IP_LEGITIMATE
-        else:
-            system_prompt = _SYSTEM_DOMAIN_MALICIOUS if is_malicious else _SYSTEM_DOMAIN_LEGITIMATE
+        system_prompt = _pick_paragraph_prompt(ioc_type, is_malicious)
         context = _format_context(results, is_malicious)
 
         client = Groq(api_key=api_key)
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Décris cet IOC :\n\n{context}"},
@@ -238,3 +314,92 @@ def synthesize(results: list[EnrichmentResult], threat_score: int = 0, groq_key:
     except Exception as exc:
         print(f"    [!] Groq synthesis error : {exc}")
         return None
+
+
+def synthesize_structured(results: list[EnrichmentResult], threat_score: int = 0,
+                          groq_key: str = "") -> dict | None:
+    """Renvoie un dict structuré conforme au schéma (verdict/family/ttps/...).
+    None si Groq KO ou JSON invalide."""
+    api_key = groq_key or os.getenv("GROQ_API_KEY")
+    if not api_key:
+        return None
+    try:
+        from groq import Groq
+
+        is_malicious = threat_score > 0
+        context = _format_context(results, is_malicious=True)  # toujours full context pour le JSON
+
+        client = Groq(api_key=api_key)
+        response = client.chat.completions.create(
+            model=_MODEL,
+            messages=[
+                {"role": "system", "content": _SYSTEM_STRUCTURED},
+                {"role": "user", "content":
+                    f"Score numérique calculé : {threat_score}/100. Analyse cet IOC :\n\n{context}"},
+            ],
+            temperature=0.1,
+            max_tokens=1500,
+            response_format={"type": "json_object"},
+        )
+        raw = response.choices[0].message.content.strip()
+        parsed = json.loads(raw)
+        return _validate_structured(parsed)
+    except Exception as exc:
+        print(f"    [!] Groq structured synthesis error : {exc}")
+        return None
+
+
+def synthesize_full(results: list[EnrichmentResult], threat_score: int = 0,
+                    groq_key: str = "") -> tuple[str | None, dict | None]:
+    """Combine paragraphe + JSON structuré (2 appels Groq).
+    Renvoie (paragraphe, structured) — l'un peut être None si erreur."""
+    paragraph = synthesize(results, threat_score, groq_key)
+    structured = synthesize_structured(results, threat_score, groq_key)
+    return paragraph, structured
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Validators
+# ─────────────────────────────────────────────────────────────────────────────
+
+_VALID_VERDICTS = {"malicious", "suspicious", "legitimate", "inconclusive"}
+
+
+def _validate_structured(d: dict) -> dict:
+    """Normalise et clamp les champs ; ignore les extras."""
+    if not isinstance(d, dict):
+        return None  # type: ignore[return-value]
+
+    verdict = (d.get("verdict") or "").lower()
+    if verdict not in _VALID_VERDICTS:
+        verdict = "inconclusive"
+
+    ttps_raw = d.get("ttps") or []
+    ttps: list[dict] = []
+    if isinstance(ttps_raw, list):
+        for t in ttps_raw[:12]:
+            if isinstance(t, dict):
+                tid = (t.get("technique_id") or "").upper().strip()
+                if tid.startswith("T") and tid[1:].replace(".", "").isdigit():
+                    ttps.append({"technique_id": tid, "name": (t.get("name") or "").strip()})
+            elif isinstance(t, str):
+                tid = t.upper().strip()
+                if tid.startswith("T") and tid[1:].replace(".", "").isdigit():
+                    ttps.append({"technique_id": tid, "name": ""})
+
+    confidence = d.get("confidence")
+    try:
+        confidence = max(0.0, min(1.0, float(confidence)))
+    except (TypeError, ValueError):
+        confidence = None
+
+    return {
+        "verdict": verdict,
+        "malware_family": (d.get("malware_family") or "").strip() or None,
+        "campaign_or_actor": (d.get("campaign_or_actor") or "").strip() or None,
+        "ttps": ttps,
+        "iocs_observed": (d.get("iocs_observed") or [])[:10],
+        "key_observations": [str(x).strip() for x in (d.get("key_observations") or [])[:6] if str(x).strip()],
+        "recommended_actions": [str(x).strip() for x in (d.get("recommended_actions") or [])[:5] if str(x).strip()],
+        "confidence": confidence,
+    }
