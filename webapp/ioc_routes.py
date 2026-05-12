@@ -1,6 +1,7 @@
 import ipaddress
 import logging
 import os
+import re
 from datetime import datetime
 from flask import Blueprint, render_template, redirect, url_for, flash, request, abort, send_file
 from flask_login import login_required, current_user
@@ -14,6 +15,154 @@ from src.enrichers import ENRICHERS_BY_TYPE
 from src.synthesis import groq_synthesizer
 
 ioc_bp = Blueprint("ioc", __name__)
+
+_MAX_FILE_BYTES = 512 * 1024   # 512 Ko
+_MAX_BATCH      = 30
+
+
+def _parse_upload(file_storage) -> tuple[list[str], str | None]:
+    """Validate and parse an uploaded .txt file. Returns (values, error_message)."""
+    filename = file_storage.filename or ""
+
+    # 1. Extension — whitelist strict
+    if not filename.lower().endswith(".txt"):
+        return [], "Seuls les fichiers .txt sont acceptés."
+
+    # 2. Read at most MAX+1 bytes to detect oversized files without loading everything
+    raw_bytes = file_storage.read(_MAX_FILE_BYTES + 1)
+    if len(raw_bytes) > _MAX_FILE_BYTES:
+        return [], "Fichier trop volumineux (maximum 512 Ko)."
+
+    # 3. Decode as UTF-8 — reject binary / unexpected encodings
+    try:
+        text = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        return [], "Fichier illisible — encodage non supporté (UTF-8 attendu)."
+
+    # 4. Parse lines — strip inline comments and blanks
+    values = []
+    for line in text.splitlines():
+        line = line.split("#")[0].strip()
+        if line:
+            values.append(line)
+
+    if not values:
+        return [], "Fichier vide (aucun IOC trouvé — les lignes débutant par # sont ignorées)."
+
+    if len(values) > _MAX_BATCH:
+        return [], (
+            f"Trop d'IOCs dans le fichier ({len(values)}) — "
+            f"maximum {_MAX_BATCH} par import."
+        )
+
+    return values, None
+
+
+def _parse_text_input(raw: str) -> list[str]:
+    """Split a free-text input on commas and/or newlines, deduplicate, preserve order."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for part in re.split(r"[,\n\r]+", raw):
+        part = part.strip()
+        if part and part not in seen:
+            seen.add(part)
+            result.append(part)
+    return result
+
+
+def _fmt_ts(v) -> str:
+    if not v:
+        return "—"
+    try:
+        return datetime.utcfromtimestamp(int(v)).strftime("%Y-%m-%d")
+    except Exception:
+        return str(v)[:10]
+
+
+def _build_summary(results: list[dict], ioc_type: str, ioc_value: str) -> dict | None:
+    """Build the quick-summary table data for the IOC detail page."""
+    src = {
+        r["source"]: r.get("data") or {}
+        for r in results
+        if not r.get("error") and r.get("data")
+    }
+    vt  = src.get("VirusTotal", {})
+    mal = vt.get("malicious", 0) or 0
+    tot = vt.get("total_engines", 0) or 0
+    vt_str = f"{mal}/{tot}" if tot else "—"
+
+    if ioc_type == "ip":
+        abuse = src.get("AbuseIPDB", {})
+        ipapi = src.get("ip-api.com", {})
+        asn_num = vt.get("asn") or ipapi.get("asn") or ""
+        abuse_sc = abuse.get("abuse_confidence_score")
+        fields = [
+            ("IP",              ioc_value),
+            ("Score AbuseIPDB", f"{abuse_sc}%" if abuse_sc is not None else "—"),
+            ("Score VT",        vt_str),
+            ("ISP",             ipapi.get("isp") or abuse.get("isp") or "—"),
+            ("Usage Type",      ipapi.get("network_type") or "—"),
+            ("ASN",             f"AS{asn_num}" if asn_num else "—"),
+            ("AS Owner",        vt.get("as_owner") or ipapi.get("as_name") or "—"),
+            ("Réseau",          vt.get("network") or "—"),
+            ("Reverse DNS",     ipapi.get("reverse_dns") or "—"),
+            ("Country",         ipapi.get("country") or abuse.get("country_name") or "—"),
+            ("City",            ipapi.get("city") or "—"),
+        ]
+
+    elif ioc_type == "domain":
+        cats = vt.get("categories") or {}
+        cats_str = " · ".join(sorted({str(v) for v in cats.values()}))[:80] if cats else "—"
+        rep = vt.get("reputation")
+        fields = [
+            ("Domaine",       ioc_value),
+            ("Score VT",      vt_str),
+            ("Réputation VT", str(rep) if rep is not None else "—"),
+            ("Tags",          " · ".join(vt.get("tags") or []) or "—"),
+            ("Catégories",    cats_str),
+            ("Registrar",     vt.get("registrar") or "—"),
+            ("Création",      _fmt_ts(vt.get("creation_date"))),
+        ]
+
+    elif ioc_type == "hash":
+        exif = vt.get("exiftool") or {}
+        sig  = vt.get("signature_info") or {}
+        sub  = sig.get("subject") or ""
+        cn   = (sub.split("CN=")[-1].split(",")[0] if "CN=" in sub
+                else (sig.get("signers") or "").split(";")[0]).strip()
+        signer_str = cn if cn else ("Non signé" if vt else "—")
+
+        size = vt.get("file_size")
+        size_str = f"{size:,}".replace(",", " ") + " o" if size else "—"
+
+        sha256 = vt.get("sha256") or "—"
+        sha256_display = sha256[:22] + "…" if len(sha256) > 22 else sha256
+
+        fields = [
+            ("MD5",             vt.get("md5") or ioc_value),
+            ("SHA1",            vt.get("sha1") or "—"),
+            ("SHA256",          sha256_display),
+            ("Type",            vt.get("type_description") or vt.get("magic") or "—"),
+            ("Taille",          size_str),
+            ("Score VT",        vt_str),
+            ("Famille",         vt.get("popular_threat_label") or "—"),
+            ("Compilé le",      str(vt.get("pe_compilation_date") or "—")[:10]),
+            ("1ère soumission", vt.get("first_submission_date") or "—"),
+            ("Signé par",       signer_str),
+            ("Company (Exif)",  exif.get("CompanyName") or "—"),
+            ("Product (Exif)",  exif.get("ProductName") or "—"),
+        ]
+    else:
+        return None
+
+    headers = [f[0] for f in fields]
+    values  = [str(f[1]) for f in fields]
+    md_header = "| " + " | ".join(f"**{h}**" for h in headers) + " |"
+    md_sep    = "| " + " | ".join(["---"] * len(headers)) + " |"
+    md_row    = "| " + " | ".join(values) + " |"
+    markdown  = "\n".join([md_header, md_sep, md_row])
+
+    return {"fields": fields, "markdown": markdown}
 
 
 def _is_private_ioc(value: str, ioc_type: str) -> bool:
@@ -124,7 +273,8 @@ def detail(value: str):
     record.view_count = (record.view_count or 0) + 1
     db.session.commit()
     results = record.get_results()
-    return render_template("ioc_detail.html", record=record, results=results)
+    summary = _build_summary(results, record.ioc_type, record.value)
+    return render_template("ioc_detail.html", record=record, results=results, summary=summary)
 
 
 @ioc_bp.route("/enrich", methods=["GET", "POST"])
@@ -140,82 +290,162 @@ def enrich():
             flash("Vous devez d'abord configurer vos clés API.", "warning")
             return redirect(url_for("auth.api_keys"))
 
-        value = request.form.get("ioc", "").strip()
         force = request.form.get("force") == "1"
+        keys  = current_user.get_api_keys() if not current_user.is_admin else None
 
-        if not value:
-            flash("Veuillez saisir un IOC.", "danger")
-            return render_template("enrich.html")
+        # ── Collect IOC values: file upload takes priority over text input ──
+        uploaded = request.files.get("ioc_file")
+        if uploaded and uploaded.filename:
+            values, file_error = _parse_upload(uploaded)
+            if file_error:
+                flash(file_error, "danger")
+                return render_template("enrich.html", prefill="", max_batch=_MAX_BATCH)
+        else:
+            raw = request.form.get("ioc", "").strip()
+            if not raw:
+                flash("Veuillez saisir au moins un IOC.", "danger")
+                return render_template("enrich.html", prefill="", max_batch=_MAX_BATCH)
+            values = _parse_text_input(raw)
 
-        # Detect IOC type first to check for private addresses
-        iocs, _ = parse_iocs([value])
-        if not iocs:
-            flash(f"IOC non reconnu : {value!r}", "danger")
-            return render_template("enrich.html", prefill=value)
+        if not values:
+            flash("Aucun IOC valide trouvé.", "danger")
+            return render_template("enrich.html", prefill="", max_batch=_MAX_BATCH)
 
-        ioc_type = iocs[0].type
+        # ── Single IOC: original flow (redirect to detail page) ──
+        if len(values) == 1:
+            value = values[0]
 
-        # Private / local IOC: no info available, don't save
-        if _is_private_ioc(value, ioc_type):
-            return render_template(
-                "enrich.html",
-                prefill=value,
-                no_info=True,
-                no_info_reason="Adresse privée ou locale (RFC1918 / loopback / .local)",
-            )
+            iocs, _ = parse_iocs([value])
+            if not iocs:
+                flash(f"IOC non reconnu : {value!r}", "danger")
+                return render_template("enrich.html", prefill=value, max_batch=_MAX_BATCH)
 
-        existing = IOCRecord.query.filter_by(value=value).first()
-        if existing and not force and not existing.is_stale:
-            flash(
-                f"IOC déjà en base (enrichi il y a {existing.age_days} jour(s)). "
-                "Résultat affiché depuis le cache.",
-                "info",
-            )
+            ioc_type = iocs[0].type
+
+            if _is_private_ioc(value, ioc_type):
+                return render_template(
+                    "enrich.html",
+                    prefill=value, max_batch=_MAX_BATCH,
+                    no_info=True,
+                    no_info_reason="Adresse privée ou locale (RFC1918 / loopback / .local)",
+                )
+
+            existing = IOCRecord.query.filter_by(value=value).first()
+            if existing and not force and not existing.is_stale:
+                flash(
+                    f"IOC déjà en base (enrichi il y a {existing.age_days} jour(s)). "
+                    "Résultat affiché depuis le cache.",
+                    "info",
+                )
+                return redirect(url_for("ioc.detail", value=value))
+
+            try:
+                ioc_type, raw, paragraph, threat_score = _enrich_ioc(value, keys=keys)
+            except ValueError as exc:
+                flash(str(exc), "danger")
+                return render_template("enrich.html", prefill=value, max_batch=_MAX_BATCH)
+            except Exception as exc:
+                logger.error("Enrichment error for %r: %s", value, exc)
+                flash("Une erreur est survenue lors de l'enrichissement.", "danger")
+                return render_template("enrich.html", prefill=value, max_batch=_MAX_BATCH)
+
+            if _all_sources_failed(raw):
+                return render_template(
+                    "enrich.html",
+                    prefill=value, max_batch=_MAX_BATCH,
+                    no_info=True,
+                    no_info_reason="Aucune source n'a retourné d'information pour cet IOC.",
+                )
+
+            existing = IOCRecord.query.filter_by(value=value).first()
+            if existing:
+                existing.enriched_at = datetime.utcnow()
+                existing.enriched_by = current_user.email
+                existing.set_results(raw)
+                existing.paragraph = paragraph
+                existing.threat_score = threat_score
+            else:
+                record = IOCRecord(
+                    value=value, ioc_type=ioc_type,
+                    enriched_by=current_user.email,
+                    paragraph=paragraph, threat_score=threat_score,
+                )
+                record.set_results(raw)
+                db.session.add(record)
+
+            db.session.commit()
+            flash("Enrichissement terminé avec succès.", "success")
             return redirect(url_for("ioc.detail", value=value))
 
-        keys = current_user.get_api_keys() if not current_user.is_admin else None
+        # ── Bulk: process all IOCs and display a results table ──
+        bulk_results = []
+        for value in values[:_MAX_BATCH]:
+            entry = {"value": value, "ioc_type": "?", "threat_score": None,
+                     "status": "error", "message": ""}
 
-        try:
-            ioc_type, raw, paragraph, threat_score = _enrich_ioc(value, keys=keys)
-        except ValueError as exc:
-            flash(str(exc), "danger")
-            return render_template("enrich.html", prefill=value)
-        except Exception as exc:
-            logger.error("Enrichment error for %r: %s", value, exc)
-            flash("Une erreur est survenue lors de l'enrichissement. Contactez un administrateur.", "danger")
-            return render_template("enrich.html", prefill=value)
+            iocs, _ = parse_iocs([value])
+            if not iocs:
+                entry["status"] = "skipped"
+                entry["message"] = "IOC non reconnu"
+                bulk_results.append(entry)
+                continue
 
-        # No data from any source: don't save, show info message
-        if _all_sources_failed(raw):
-            return render_template(
-                "enrich.html",
-                prefill=value,
-                no_info=True,
-                no_info_reason="Aucune source n'a retourné d'information pour cet IOC.",
-            )
+            ioc_type = iocs[0].type
+            entry["ioc_type"] = ioc_type
 
-        if existing:
-            existing.enriched_at = datetime.utcnow()
-            existing.enriched_by = current_user.email
-            existing.set_results(raw)
-            existing.paragraph = paragraph
-            existing.threat_score = threat_score
-        else:
-            record = IOCRecord(
-                value=value,
-                ioc_type=ioc_type,
-                enriched_by=current_user.email,
-                paragraph=paragraph,
-                threat_score=threat_score,
-            )
-            record.set_results(raw)
-            db.session.add(record)
+            if _is_private_ioc(value, ioc_type):
+                entry["status"] = "skipped"
+                entry["message"] = "Adresse privée / locale"
+                bulk_results.append(entry)
+                continue
+
+            existing = IOCRecord.query.filter_by(value=value).first()
+            if existing and not force and not existing.is_stale:
+                entry["status"] = "cached"
+                entry["threat_score"] = existing.threat_score
+                bulk_results.append(entry)
+                continue
+
+            try:
+                ioc_type, raw_res, paragraph, threat_score = _enrich_ioc(value, keys=keys)
+            except Exception as exc:
+                logger.error("Bulk enrichment error for %r: %s", value, exc)
+                entry["message"] = "Erreur d'enrichissement"
+                bulk_results.append(entry)
+                continue
+
+            if _all_sources_failed(raw_res):
+                entry["status"] = "skipped"
+                entry["message"] = "Aucune source n'a répondu"
+                bulk_results.append(entry)
+                continue
+
+            now = datetime.utcnow()
+            if existing:
+                existing.enriched_at = now
+                existing.enriched_by = current_user.email
+                existing.set_results(raw_res)
+                existing.paragraph = paragraph
+                existing.threat_score = threat_score
+                entry["status"] = "updated"
+            else:
+                record = IOCRecord(
+                    value=value, ioc_type=ioc_type,
+                    enriched_by=current_user.email,
+                    paragraph=paragraph, threat_score=threat_score,
+                )
+                record.set_results(raw_res)
+                db.session.add(record)
+                entry["status"] = "new"
+
+            entry["threat_score"] = threat_score
+            bulk_results.append(entry)
 
         db.session.commit()
-        flash("Enrichissement terminé avec succès.", "success")
-        return redirect(url_for("ioc.detail", value=value))
+        return render_template("enrich.html", bulk_results=bulk_results, max_batch=_MAX_BATCH)
 
-    return render_template("enrich.html", prefill=request.args.get("ioc", ""))
+    return render_template("enrich.html", prefill=request.args.get("ioc", ""),
+                           max_batch=_MAX_BATCH)
 
 
 @ioc_bp.route("/ioc/<path:value>/delete", methods=["POST"])

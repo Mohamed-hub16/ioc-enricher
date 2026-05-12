@@ -170,6 +170,42 @@
 </div>
 {% endif %}
 
+<!-- Summary Table -->
+{% if summary %}
+<div class="card mb-4">
+  <div class="card-header d-flex align-items-center justify-content-between py-2">
+    <div class="d-flex align-items-center gap-2">
+      <i class="bi bi-table text-info"></i>
+      <strong class="small text-uppercase" style="letter-spacing:.5px">Synthèse</strong>
+    </div>
+    <button class="btn btn-sm btn-outline-secondary" id="copy-md-btn">
+      <i class="bi bi-clipboard me-1"></i>Copier Markdown
+    </button>
+  </div>
+  <div class="card-body p-0" style="overflow-x: auto;">
+    <table class="table table-sm align-middle mb-0" style="font-size:.82rem; white-space:nowrap;">
+      <thead style="background:#1c2128;">
+        <tr>
+          {% for label, _ in summary.fields %}
+          <th class="px-3 py-2" style="font-size:.72rem; text-transform:uppercase; letter-spacing:.4px; color:#8b949e; font-weight:600;">{{ label }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          {% for _, value in summary.fields %}
+          <td class="px-3 py-2 ioc-value" style="max-width:220px; overflow:hidden; text-overflow:ellipsis;" title="{{ value }}">
+            {% if value == '—' %}<span class="text-muted">—</span>{% else %}{{ value }}{% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+      </tbody>
+    </table>
+    <textarea id="md-source" class="d-none" readonly>{{ summary.markdown }}</textarea>
+  </div>
+</div>
+{% endif %}
+
 <!-- Relationship Graph -->
 <div class="card mb-4">
   <div class="card-header d-flex align-items-center justify-content-between py-2">
@@ -319,6 +355,19 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
 <script>
+  const copyMdBtn = document.getElementById('copy-md-btn');
+  if (copyMdBtn) {
+    copyMdBtn.addEventListener('click', () => {
+      const text = document.getElementById('md-source').value;
+      navigator.clipboard.writeText(text).then(() => {
+        copyMdBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Copié !';
+        setTimeout(() => {
+          copyMdBtn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copier Markdown';
+        }, 2000);
+      });
+    });
+  }
+
   document.getElementById('reenrich-form')?.addEventListener('submit', function() {
     const btn = document.getElementById('reenrich-btn');
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Re-enrichissement...';

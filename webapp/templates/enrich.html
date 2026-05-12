@@ -1,26 +1,57 @@
 {% extends "base.html" %}
-{% block title %}Enrichir un IOC — IOC Enricher{% endblock %}
+{% block title %}Enrichir — IOC Enricher{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
-  <div class="col-md-6">
+  <div class="col-md-7">
+
     <div class="card">
       <div class="card-header">
         <h5 class="mb-0">
-          <i class="bi bi-plus-circle text-info me-2"></i>Enrichir un IOC
+          <i class="bi bi-plus-circle text-info me-2"></i>Enrichir des IOCs
         </h5>
       </div>
       <div class="card-body">
-        <p class="text-muted small mb-3">
-          Entrez une adresse IP, un nom de domaine ou un hash (MD5 / SHA1 / SHA256).
-        </p>
-        <form method="post" id="enrich-form">
+
+        <form method="post" id="enrich-form" enctype="multipart/form-data">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <div class="mb-4">
-            <input type="text" name="ioc" class="form-control form-control-lg ioc-value"
-                   placeholder="1.2.3.4  ·  example.com  ·  d41d8cd9..."
-                   value="{{ prefill }}" required autofocus>
+
+          <!-- Saisie manuelle -->
+          <div class="mb-3">
+            <label class="form-label text-muted small fw-semibold text-uppercase" style="letter-spacing:.4px;">
+              <i class="bi bi-keyboard me-1"></i>Saisie manuelle
+            </label>
+            <textarea name="ioc" id="ioc-textarea"
+                      class="form-control ioc-value"
+                      rows="3"
+                      placeholder="Un IOC par ligne ou séparés par des virgules :&#10;1.2.3.4, 5.6.7.8&#10;evil.example.com&#10;d41d8cd98f00b204e9800998ecf8427e"
+                      autofocus
+                      style="resize:vertical;">{{ prefill }}</textarea>
+            <div class="form-text text-muted">
+              IP · domaine · hash (MD5 / SHA1 / SHA256) — séparateur : virgule ou saut de ligne
+            </div>
           </div>
+
+          <!-- Séparateur OU -->
+          <div class="d-flex align-items-center gap-2 my-3">
+            <hr class="flex-grow-1" style="border-color:#30363d;">
+            <span class="text-muted small px-1">OU</span>
+            <hr class="flex-grow-1" style="border-color:#30363d;">
+          </div>
+
+          <!-- Import fichier -->
+          <div class="mb-4">
+            <label class="form-label text-muted small fw-semibold text-uppercase" style="letter-spacing:.4px;">
+              <i class="bi bi-file-text me-1"></i>Importer un fichier .txt
+            </label>
+            <input type="file" name="ioc_file" id="ioc-file" class="form-control"
+                   accept=".txt" style="background:#0d1117; border-color:#30363d; color:#c9d1d9;">
+            <div class="form-text text-muted">
+              Un IOC par ligne · lignes <code>#</code> ignorées · max {{ max_batch }} IOCs · max 512 Ko
+              — <strong>si un fichier est sélectionné, la zone de texte est ignorée</strong>
+            </div>
+          </div>
+
           <div class="d-grid">
             <button type="submit" class="btn btn-info btn-lg" id="submit-btn">
               <span id="btn-text">
@@ -28,18 +59,21 @@
               </span>
               <span id="btn-loading" class="d-none">
                 <span class="spinner-border spinner-border-sm me-2"></span>
-                Interrogation des sources... (5-15 s)
+                Enrichissement en cours…
               </span>
             </button>
           </div>
         </form>
+
         <p class="text-muted small mt-3 mb-0">
           <i class="bi bi-info-circle me-1"></i>
-          Si l'IOC est déjà en base et a moins de 7 jours, le cache est retourné immédiatement.
+          Les IOCs déjà en base et de moins de 14 jours sont servis depuis le cache.
         </p>
+
       </div>
     </div>
 
+    <!-- Message pas d'info (IOC unique) -->
     {% if no_info %}
     <div class="card mt-3 border-secondary">
       <div class="card-body d-flex align-items-start gap-3">
@@ -47,10 +81,117 @@
         <div>
           <p class="mb-1 fw-semibold text-secondary">Pas d'informations disponibles</p>
           <p class="mb-0 small text-muted">{{ no_info_reason }}</p>
-          <p class="mb-0 small text-muted mt-1">
-            Cet IOC n'a pas été enregistré dans la base de données.
-          </p>
+          <p class="mb-0 small text-muted mt-1">Cet IOC n'a pas été enregistré dans la base.</p>
         </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Résultats bulk -->
+    {% if bulk_results %}
+    {% set n_new     = bulk_results | selectattr('status', 'in', ['new', 'updated']) | list | length %}
+    {% set n_cached  = bulk_results | selectattr('status', 'equalto', 'cached')  | list | length %}
+    {% set n_skipped = bulk_results | selectattr('status', 'equalto', 'skipped') | list | length %}
+    {% set n_error   = bulk_results | selectattr('status', 'equalto', 'error')   | list | length %}
+
+    <div class="card mt-4">
+      <div class="card-header d-flex align-items-center gap-2 py-2">
+        <i class="bi bi-list-check text-info"></i>
+        <strong class="small text-uppercase" style="letter-spacing:.5px;">
+          Résultats du batch — {{ bulk_results | length }} IOC(s)
+        </strong>
+        <div class="ms-auto d-flex gap-2 flex-wrap">
+          {% if n_new %}
+          <span class="badge bg-success">{{ n_new }} enrichi{{ 's' if n_new > 1 }}</span>
+          {% endif %}
+          {% if n_cached %}
+          <span class="badge bg-info text-dark">{{ n_cached }} en cache</span>
+          {% endif %}
+          {% if n_skipped %}
+          <span class="badge bg-warning text-dark">{{ n_skipped }} ignoré{{ 's' if n_skipped > 1 }}</span>
+          {% endif %}
+          {% if n_error %}
+          <span class="badge bg-danger">{{ n_error }} erreur{{ 's' if n_error > 1 }}</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card-body p-0">
+        <table class="table table-sm table-hover align-middle mb-0" style="font-size:.875rem;">
+          <thead style="background:#1c2128; font-size:.8rem; text-transform:uppercase; letter-spacing:.4px;">
+            <tr>
+              <th class="ps-3" style="width:40%;">IOC</th>
+              <th style="width:80px;">Type</th>
+              <th style="width:110px;">Score</th>
+              <th>Statut</th>
+              <th style="width:48px;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in bulk_results %}
+            <tr>
+              <td class="ps-3 ioc-value small" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:0;">
+                <span title="{{ r.value }}">{{ r.value }}</span>
+              </td>
+
+              <td>
+                {% if r.ioc_type != '?' %}
+                <span class="badge badge-{{ r.ioc_type }}">{{ r.ioc_type }}</span>
+                {% else %}
+                <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+
+              <td>
+                {% if r.threat_score is not none %}
+                  {% set s = [r.threat_score, 100] | min %}
+                  {% if s == 0 %}{% set sc = '#2ea043' %}
+                  {% elif s <= 30 %}{% set sc = '#d29922' %}
+                  {% elif s <= 70 %}{% set sc = '#fd7e14' %}
+                  {% else %}{% set sc = '#da3633' %}{% endif %}
+                  <div class="d-flex align-items-center gap-2">
+                    <span class="fw-bold ioc-value small" style="color:{{ sc }}; min-width:28px;">{{ s }}</span>
+                    <div style="flex:1; background:#0d1117; border-radius:4px; height:5px; overflow:hidden;">
+                      <div style="width:{{ [s,3]|max }}%; height:100%; background:{{ sc }}; border-radius:4px;"></div>
+                    </div>
+                  </div>
+                {% else %}
+                  <span class="text-muted small">—</span>
+                {% endif %}
+              </td>
+
+              <td>
+                {% if r.status == 'new' %}
+                <span class="badge bg-success"><i class="bi bi-plus-circle me-1"></i>Nouveau</span>
+                {% elif r.status == 'updated' %}
+                <span class="badge bg-primary"><i class="bi bi-arrow-clockwise me-1"></i>Mis à jour</span>
+                {% elif r.status == 'cached' %}
+                <span class="badge bg-info text-dark"><i class="bi bi-lightning-charge me-1"></i>Cache</span>
+                {% elif r.status == 'skipped' %}
+                <span class="badge bg-warning text-dark" title="{{ r.message }}">
+                  <i class="bi bi-slash-circle me-1"></i>Ignoré
+                </span>
+                <span class="text-muted small ms-1">{{ r.message }}</span>
+                {% else %}
+                <span class="badge bg-danger" title="{{ r.message }}">
+                  <i class="bi bi-x-circle me-1"></i>Erreur
+                </span>
+                <span class="text-muted small ms-1">{{ r.message }}</span>
+                {% endif %}
+              </td>
+
+              <td class="pe-2">
+                {% if r.status in ('new', 'updated', 'cached') %}
+                <a href="{{ url_for('ioc.detail', value=r.value) }}"
+                   class="btn btn-sm btn-outline-secondary">
+                  <i class="bi bi-eye"></i>
+                </a>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
     </div>
     {% endif %}
@@ -61,10 +202,37 @@
 
 {% block scripts %}
 <script>
-  document.getElementById('enrich-form').addEventListener('submit', function () {
-    document.getElementById('btn-text').classList.add('d-none');
-    document.getElementById('btn-loading').classList.remove('d-none');
-    document.getElementById('submit-btn').disabled = true;
+  const form     = document.getElementById('enrich-form');
+  const fileInput = document.getElementById('ioc-file');
+  const textarea  = document.getElementById('ioc-textarea');
+  const btnText   = document.getElementById('btn-text');
+  const btnLoad   = document.getElementById('btn-loading');
+  const btn       = document.getElementById('submit-btn');
+
+  // When a file is selected, visually dim the textarea to signal it's ignored
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length > 0) {
+      textarea.style.opacity = '0.35';
+      textarea.style.pointerEvents = 'none';
+    } else {
+      textarea.style.opacity = '';
+      textarea.style.pointerEvents = '';
+    }
+  });
+
+  form.addEventListener('submit', function (e) {
+    const hasFile = fileInput.files.length > 0;
+    const hasText = textarea.value.trim().length > 0;
+
+    if (!hasFile && !hasText) {
+      e.preventDefault();
+      textarea.focus();
+      return;
+    }
+
+    btnText.classList.add('d-none');
+    btnLoad.classList.remove('d-none');
+    btn.disabled = true;
   });
 </script>
 {% endblock %}
