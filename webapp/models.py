@@ -1,4 +1,6 @@
+import hashlib
 import json
+import secrets
 from datetime import datetime
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -16,11 +18,28 @@ class User(UserMixin, db.Model):
     role = db.Column(db.String(20), default="pending")  # admin | analyst | pending
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # REST API token (SHA-256 hash of the plain token — shown only once at generation)
+    rest_api_key_hash = db.Column(db.String(64), nullable=True, unique=True, index=True)
+
     # API keys stored AES-128-GCM encrypted
     virustotal_key_enc = db.Column(db.Text, nullable=True)
     abuseipdb_key_enc  = db.Column(db.Text, nullable=True)
     urlscan_key_enc    = db.Column(db.Text, nullable=True)
     groq_key_enc       = db.Column(db.Text, nullable=True)
+
+    def generate_rest_api_key(self) -> str:
+        """Generate a new REST API token. Store its SHA-256 hash; return the plain token (shown once)."""
+        plain = secrets.token_hex(32)
+        self.rest_api_key_hash = hashlib.sha256(plain.encode()).hexdigest()
+        return plain
+
+    def revoke_rest_api_key(self) -> None:
+        self.rest_api_key_hash = None
+
+    @staticmethod
+    def get_by_rest_api_key(plain: str) -> "User | None":
+        key_hash = hashlib.sha256(plain.encode()).hexdigest()
+        return User.query.filter_by(rest_api_key_hash=key_hash).first()
 
     def set_password(self, password: str) -> None:
         self.password_hash = generate_password_hash(password)

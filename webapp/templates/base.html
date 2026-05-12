@@ -61,6 +61,16 @@
             </a>
           </li>
           {% endif %}
+          {% if current_user.is_authenticated and current_user.is_approved %}
+          <li class="nav-item">
+            <a class="nav-link" href="{{ url_for('auth.api_keys') }}">
+              <i class="bi bi-key me-1"></i>Paramètres
+              {% if not current_user.is_admin and not current_user.has_api_keys %}
+              <span class="badge bg-warning text-dark ms-1" style="font-size:0.65rem;">!</span>
+              {% endif %}
+            </a>
+          </li>
+          {% endif %}
         </ul>
         <ul class="navbar-nav">
           {% if current_user.is_authenticated %}

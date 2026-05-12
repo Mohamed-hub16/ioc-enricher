@@ -54,11 +54,14 @@ def create_app() -> Flask:
     from .ioc_routes import ioc_bp
     from .admin_routes import admin_bp
     from .deploy_routes import deploy_bp
+    from .api_routes import api_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(ioc_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(deploy_bp)
+    app.register_blueprint(api_bp)
+    csrf.exempt(api_bp)
 
     with app.app_context():
         db.create_all()
@@ -78,6 +81,13 @@ def create_app() -> Flask:
             db.session.commit()
         except Exception:
             db.session.rollback()
+        # Migration: add REST API token hash column
+        try:
+            db.session.execute(db.text("ALTER TABLE users ADD COLUMN rest_api_key_hash VARCHAR(64)"))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
         # Migration: add encrypted API key columns to users table
         for _col in ["virustotal_key_enc", "abuseipdb_key_enc", "urlscan_key_enc", "groq_key_enc"]:
             try:

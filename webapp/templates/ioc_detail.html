@@ -194,7 +194,8 @@
       <span><span style="display:inline-block;width:10px;height:10px;background:#1e3a5f;border-radius:50%;margin-right:4px;"></span>IP contactée</span>
       <span><span style="display:inline-block;width:10px;height:10px;background:#164e63;border-radius:50%;margin-right:4px;"></span>Sandbox / YARA</span>
       {% else %}
-      <span><span style="display:inline-block;width:10px;height:10px;background:#da3633;border-radius:50%;margin-right:4px;"></span>Malveillant/CVE/Blacklist</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#da3633;border-radius:50%;margin-right:4px;"></span>Scanner AV détecteur</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#c2410c;border-radius:50%;margin-right:4px;"></span>Malveillant/CVE/Blacklist</span>
       <span><span style="display:inline-block;width:10px;height:10px;background:#6741a8;border-radius:50%;margin-right:4px;"></span>ASN/Réseau</span>
       <span><span style="display:inline-block;width:10px;height:10px;background:#d29922;border-radius:50%;margin-right:4px;"></span>Port ouvert</span>
       <span><span style="display:inline-block;width:10px;height:10px;background:#2ea043;border-radius:50%;margin-right:4px;"></span>Hostname/Signataire</span>
@@ -241,8 +242,18 @@
             {% for k, v in res['data'].items() %}
             {% if v is not none and v != '' and v != [] and v != {} %}
             <tr>
-              <td class="text-muted" style="width: 30%; white-space: nowrap;">{{ k }}</td>
-              <td>{{ render_val(v) }}</td>
+              <td class="text-muted" style="width: 30%; white-space: nowrap;">
+                {% if k == 'malicious_vendors' %}<span class="text-danger fw-semibold">Scanners détecteurs</span>{% else %}{{ k }}{% endif %}
+              </td>
+              <td>
+                {% if k == 'malicious_vendors' %}
+                  {% for vendor in v %}
+                    <span class="badge bg-danger me-1 mb-1" style="font-size:0.75rem;">{{ vendor }}</span>
+                  {% endfor %}
+                {% else %}
+                  {{ render_val(v) }}
+                {% endif %}
+              </td>
             </tr>
             {% endif %}
             {% endfor %}
@@ -581,6 +592,21 @@
             label: trunc(c.title||c.source||'',22),
             title: (c.source||'')+(c.title?'\n'+c.title:'')+(c.severity?'\nSévérité: '+c.severity:''),
             group: ['high','critical'].includes(c.severity)?'threat':'tag' }), 'context'));
+
+          const malVendors = d.malicious_vendors || [];
+          if (malVendors.length) {
+            const hubId = newNode({
+              label: '🔴 Détections\n(' + (d.malicious||0) + '/' + (d.total_engines||0) + ')',
+              title: malVendors.length + ' scanner(s) AV ont détecté cet IOC comme malveillant',
+              group: 'threat',
+            });
+            addEdge(0, hubId, 'détecté');
+            malVendors.slice(0, 8).forEach(v => addEdge(hubId, newNode({
+              label: trunc(v, 20),
+              title: 'Détecté par : ' + v,
+              group: 'file_mal',
+            })));
+          }
         }
 
         if (r.source === 'ip-api.com') {

@@ -1,7 +1,7 @@
 import os
 import re
 from urllib.parse import urlparse
-from flask import Blueprint, render_template, redirect, url_for, flash, request
+from flask import Blueprint, render_template, redirect, url_for, flash, request, session
 from flask_login import login_user, logout_user, login_required, current_user
 from webapp import db
 from webapp.models import User
@@ -90,14 +90,40 @@ def api_keys():
         groq           = request.form.get("groq_key", "").strip()
         if not vt and not current_user.virustotal_key_enc:
             flash("La clé VirusTotal est obligatoire.", "danger")
-            return render_template("api_keys.html")
+            reveal_key = session.pop("reveal_api_key", None)
+            return render_template("api_keys.html", reveal_key=reveal_key)
 
         current_user.set_api_keys(vt=vt, abuse=abuse, urlscan=urlscan, groq=groq)
         db.session.commit()
         flash("Clés API enregistrées avec succès.", "success")
         return redirect(url_for("ioc.enrich"))
 
-    return render_template("api_keys.html")
+    reveal_key = session.pop("reveal_api_key", None)
+    return render_template("api_keys.html", reveal_key=reveal_key)
+
+
+@auth_bp.route("/settings/api-token/generate", methods=["POST"])
+@login_required
+def generate_api_token():
+    if not current_user.is_approved:
+        flash("Votre compte n'est pas encore approuvé.", "warning")
+        return redirect(url_for("ioc.index"))
+    plain_key = current_user.generate_rest_api_key()
+    db.session.commit()
+    session["reveal_api_key"] = plain_key
+    return redirect(url_for("auth.api_keys"))
+
+
+@auth_bp.route("/settings/api-token/revoke", methods=["POST"])
+@login_required
+def revoke_api_token():
+    if not current_user.is_approved:
+        flash("Votre compte n'est pas encore approuvé.", "warning")
+        return redirect(url_for("ioc.index"))
+    current_user.revoke_rest_api_key()
+    db.session.commit()
+    flash("Token API révoqué.", "info")
+    return redirect(url_for("auth.api_keys"))
 
 
 @auth_bp.route("/logout")

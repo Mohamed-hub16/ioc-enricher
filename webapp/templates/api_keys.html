@@ -113,6 +113,91 @@
       </div>
     </form>
 
+    <!-- REST API Token -->
+    <div class="card mt-4">
+      <div class="card-header py-2 d-flex align-items-center gap-2">
+        <i class="bi bi-braces text-info"></i>
+        <strong class="small text-uppercase" style="letter-spacing:.5px">Token d'accès API REST</strong>
+        {% if current_user.rest_api_key_hash %}
+        <span class="badge bg-success ms-auto" style="font-size:.7rem;">
+          <i class="bi bi-check-circle me-1"></i>Actif
+        </span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+
+        {% if reveal_key %}
+        <div class="alert alert-warning d-flex align-items-start gap-2 mb-3" role="alert">
+          <i class="bi bi-exclamation-triangle-fill flex-shrink-0 mt-1"></i>
+          <div class="w-100">
+            <strong>Copiez ce token maintenant — il ne sera plus affiché.</strong>
+            <div class="mt-2 d-flex align-items-center gap-2">
+              <code id="api-token-value" class="flex-grow-1 p-2 rounded font-monospace small"
+                    style="background:#0d1117; word-break:break-all; user-select:all; display:block;">{{ reveal_key }}</code>
+              <button class="btn btn-sm btn-outline-secondary flex-shrink-0"
+                      onclick="navigator.clipboard.writeText('{{ reveal_key }}').then(() => this.innerHTML='<i class=\'bi bi-check-lg\'></i>')">
+                <i class="bi bi-clipboard"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+
+        <p class="text-muted small mb-3">
+          Ce token permet à d'autres systèmes d'accéder à l'API REST
+          <code>/api/v1/</code>. Passez-le dans l'en-tête <code>X-API-Key</code>.
+        </p>
+
+        <div class="d-flex gap-2 flex-wrap align-items-center mb-3">
+          <form method="post" action="{{ url_for('auth.generate_api_token') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-outline-info"
+                    {% if current_user.rest_api_key_hash %}
+                    onclick="return confirm('Générer un nouveau token révoque l\'ancien. Continuer ?')"
+                    {% endif %}>
+              <i class="bi bi-arrow-repeat me-1"></i>
+              {{ 'Régénérer' if current_user.rest_api_key_hash else 'Générer' }} un token
+            </button>
+          </form>
+          {% if current_user.rest_api_key_hash %}
+          <form method="post" action="{{ url_for('auth.revoke_api_token') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-outline-danger"
+                    onclick="return confirm('Révoquer ce token ? Toutes les intégrations utilisant ce token seront interrompues.')">
+              <i class="bi bi-trash3 me-1"></i>Révoquer
+            </button>
+          </form>
+          {% endif %}
+        </div>
+
+        <details class="mt-2">
+          <summary class="text-muted small" style="cursor:pointer;">
+            <i class="bi bi-code-slash me-1"></i>Exemples d'utilisation
+          </summary>
+          <pre class="mt-2 p-3 rounded small" style="background:#0d1117; font-size:.78rem; overflow-x:auto;"><code># Lister les IOCs (page 1, 50 par page)
+curl -H "X-API-Key: &lt;votre-token&gt;" \
+     "{{ request.host_url }}api/v1/iocs?type=ip&amp;min_score=50"
+
+# Détail d'un IOC
+curl -H "X-API-Key: &lt;votre-token&gt;" \
+     "{{ request.host_url }}api/v1/ioc/8.8.8.8"
+
+# Enrichir un IOC
+curl -X POST \
+     -H "X-API-Key: &lt;votre-token&gt;" \
+     -H "Content-Type: application/json" \
+     -d '{"ioc": "8.8.8.8"}' \
+     "{{ request.host_url }}api/v1/enrich"
+
+# Supprimer un IOC (admin uniquement)
+curl -X DELETE \
+     -H "X-API-Key: &lt;votre-token&gt;" \
+     "{{ request.host_url }}api/v1/ioc/8.8.8.8"</code></pre>
+        </details>
+
+      </div>
+    </div>
+
   </div>
 </div>
 {% endblock %}

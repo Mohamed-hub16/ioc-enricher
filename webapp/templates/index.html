@@ -23,9 +23,12 @@
     </form>
   </div>
   {% if current_user.is_authenticated and current_user.is_approved %}
-  <div class="col-auto mt-3 mt-md-0" style="margin-top: 1.9rem !important;">
+  <div class="col-auto mt-3 mt-md-0 d-flex gap-2" style="margin-top: 1.9rem !important;">
     <a href="{{ url_for('ioc.enrich') }}" class="btn btn-info">
       <i class="bi bi-plus-circle me-1"></i>Enrichir un IOC
+    </a>
+    <a href="{{ url_for('ioc.export_excel') }}" class="btn btn-outline-success">
+      <i class="bi bi-file-earmark-spreadsheet me-1"></i>Exporter Excel
     </a>
   </div>
   {% endif %}

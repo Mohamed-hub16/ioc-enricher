@@ -2,7 +2,7 @@ import ipaddress
 import logging
 import os
 from datetime import datetime
-from flask import Blueprint, render_template, redirect, url_for, flash, request, abort
+from flask import Blueprint, render_template, redirect, url_for, flash, request, abort, send_file
 from flask_login import login_required, current_user
 
 logger = logging.getLogger(__name__)
@@ -229,6 +229,105 @@ def delete_ioc(value: str):
     db.session.commit()
     flash(f"IOC « {value} » supprimé.", "success")
     return redirect(url_for("ioc.index"))
+
+
+@ioc_bp.route("/export/excel")
+@login_required
+def export_excel():
+    if not current_user.is_approved:
+        abort(403)
+
+    import openpyxl
+    from io import BytesIO
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+
+    IP_HEADERS = ["Valeur", "ISP", "Score global", "Score AbuseIPDB", "Score VirusTotal",
+                  "Vues", "Malveillant", "Enrichi le", "Enrichi par"]
+    OTHER_HEADERS = ["Valeur", "Score global", "Score AbuseIPDB", "Score VirusTotal",
+                     "Vues", "Malveillant", "Enrichi le", "Enrichi par"]
+    IP_WIDTHS    = [38, 30, 13, 16, 16, 8, 12, 20, 28]
+    OTHER_WIDTHS = [45,     13, 16, 16, 8, 12, 20, 28]
+
+    HDR_FONT = Font(bold=True, color="C9D1D9")
+    HDR_FILL = PatternFill("solid", fgColor="1C2128")
+    HDR_ALIGN = Alignment(horizontal="center")
+    RED_FONT  = Font(color="DA3633", bold=True)
+
+    def _extract_row_data(raw_results: list[dict], ioc_type: str) -> tuple[str, str, str, str]:
+        """Return (isp, abuse_score, vt_score) extracted from raw results."""
+        isp = ""
+        abuse_score = ""
+        vt_score = ""
+        for res in raw_results:
+            if res.get("error") or not res.get("data"):
+                continue
+            d = res["data"]
+            if res["source"] == "ip-api.com":
+                isp = d.get("isp") or ""
+            elif res["source"] == "AbuseIPDB":
+                val = d.get("abuse_confidence_score")
+                if val is not None:
+                    abuse_score = str(val)
+                if not isp:
+                    isp = d.get("isp") or ""
+            elif res["source"] == "VirusTotal":
+                mal = d.get("malicious", 0) or 0
+                tot = d.get("total_engines", 0) or 0
+                if tot > 0:
+                    vt_score = str(round(mal / tot * 100))
+                elif mal == 0:
+                    vt_score = "0"
+        return isp, abuse_score, vt_score
+
+    for ioc_type in ("ip", "domain", "hash"):
+        is_ip = ioc_type == "ip"
+        headers   = IP_HEADERS if is_ip else OTHER_HEADERS
+        col_widths = IP_WIDTHS  if is_ip else OTHER_WIDTHS
+
+        ws = wb.create_sheet(title=ioc_type.upper() + "s")
+        ws.append(headers)
+        for i, cell in enumerate(ws[1], start=1):
+            cell.font = HDR_FONT
+            cell.fill = HDR_FILL
+            cell.alignment = HDR_ALIGN
+            ws.column_dimensions[cell.column_letter].width = col_widths[i - 1]
+
+        records = (
+            IOCRecord.query.filter_by(ioc_type=ioc_type)
+            .order_by(IOCRecord.threat_score.desc(), IOCRecord.enriched_at.desc())
+            .all()
+        )
+        for r in records:
+            isp, abuse_score, vt_score = _extract_row_data(r.get_results(), ioc_type)
+            if is_ip:
+                row = [r.value, isp, r.threat_score or 0, abuse_score, vt_score,
+                       r.view_count or 0, "Oui" if r.is_malicious else "Non",
+                       r.enriched_at.strftime("%Y-%m-%d %H:%M UTC"), r.enriched_by or ""]
+                mal_cols = (1, 3, 7)   # Valeur, Score global, Malveillant
+            else:
+                row = [r.value, r.threat_score or 0, abuse_score, vt_score,
+                       r.view_count or 0, "Oui" if r.is_malicious else "Non",
+                       r.enriched_at.strftime("%Y-%m-%d %H:%M UTC"), r.enriched_by or ""]
+                mal_cols = (1, 2, 6)
+            ws.append(row)
+            if r.is_malicious:
+                for col in mal_cols:
+                    ws.cell(row=ws.max_row, column=col).font = RED_FONT
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    filename = f"ioc_export_{datetime.utcnow().strftime('%Y%m%d_%H%M')}.xlsx"
+    return send_file(
+        output,
+        download_name=filename,
+        as_attachment=True,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 @ioc_bp.route("/ioc/<path:value>/comment", methods=["POST"])
