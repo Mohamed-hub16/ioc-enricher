@@ -6,10 +6,23 @@ Outil de threat intelligence pour analystes SOC. Enrichit des IPs, domaines et h
 
 ## Fonctionnalités
 
-- **Enrichissement multi-sources** — AbuseIPDB, VirusTotal, ip-api.com, urlscan.io selon le type d'IOC
+- **Enrichissement multi-sources** — 9 sources câblées :
+  - **AbuseIPDB**, **VirusTotal**, **ip-api.com**, **urlscan.io** (existant)
+  - **Shodan InternetDB** (ports / CVE / hostnames, sans clé)
+  - **GreyNoise Community** (bruit Internet vs ciblé, RIOT, classification)
+  - **URLhaus** (URLs distribuant du malware, host + payload lookup)
+  - **ThreatFox** (IOC ↔ famille de malware, tags campagne)
+  - **MalwareBazaar** (hash lookup, signature, YARA rules)
+- **Defang in/out** — entrée `hxxp://evil[.]com`, `8[.]8[.]8[.]8`, `user[@]example.com` automatiquement reconnue. Sortie défangée copiable en un clic.
+- **URL & IPv6** — l'analyste peut coller une URL (l'hôte est extrait) ou une IPv6.
 - **Analyse hash avancée** — signature numérique, PE/exiftool, YARA, sandboxes, threat classification
-- **Synthèse IA adaptative** — paragraphe SOC en français généré par Groq (llama-3.3-70b), prompt différent selon le type d'IOC et son niveau de menace
-- **Score de menace 0–100** — combinaison pondérée AbuseIPDB + VirusTotal
+- **Synthèse IA double** — paragraphe SOC en français + **sortie JSON structurée** (verdict, famille malware, TTPs MITRE ATT&CK, observations, actions recommandées, confiance)
+- **Score de menace 0–100 avec breakdown transparent** — base AbuseIPDB + VirusTotal + bonus contextuels par source, RIOT cap à 10. Décomposition affichée sur la fiche.
+- **Pivots cliquables** — un clic sur un ASN, registrar, famille, TTP, tag → liste de tous les IOCs partageant ce critère.
+- **TLP 2.0** — marquage CLEAR / GREEN / AMBER / AMBER+STRICT / RED par IOC.
+- **Tags analystes libres** — taggez vos IOCs par campagne (`lockbit-oct2025`, `phishing-rh`).
+- **Pages pivot** — `/ttps` (toutes les techniques MITRE observées + count + lien attack.mitre.org), `/families` (toutes les familles de malware vues en base).
+- **Healthcheck** — `/health` pour monitoring (DB ping + last enrichment timestamp).
 - **Scanners détecteurs** — pour les IPs et domaines malveillants, les antivirus ayant détecté l'IOC sont affichés en badges rouges dans les données brutes et dans le graphe
 - **Cartographie des relations** — graphe interactif (vis-network) : hiérarchique pour les hashes, force-directed pour les IP/domaines
 - **Interface web** — historique, recherche, filtres (malveillant / légitime), tri, re-enrichissement
@@ -32,7 +45,15 @@ Outil de threat intelligence pour analystes SOC. Enrichit des IPs, domaines et h
 | VirusTotal | ✅ | ✅ | ✅ | Oui (500 req/jour) |
 | ip-api.com | ✅ | ❌ | ❌ | **Non** — gratuit sans clé |
 | urlscan.io | ✅ | ✅ | ❌ | Oui (1 000 req/jour) |
+| **Shodan InternetDB** | ✅ | ❌ | ❌ | **Non** — gratuit sans clé |
+| **GreyNoise Community** | ✅ | ❌ | ❌ | Oui — free (~10k req/jour) |
+| **URLhaus** | ✅ | ✅ | ✅ | Auth-Key abuse.ch (gratuite) |
+| **ThreatFox** | ✅ | ✅ | ✅ | Auth-Key abuse.ch (gratuite) |
+| **MalwareBazaar** | ❌ | ❌ | ✅ | Auth-Key abuse.ch (gratuite) |
 | Groq (IA) | ✅ | ✅ | ✅ | Oui — free tier |
+
+> **Note** : URLhaus, ThreatFox et MalwareBazaar partagent une seule clé abuse.ch
+> (créer un compte sur https://auth.abuse.ch/, variable `ABUSE_CH_API_KEY`).
 
 ### Données extraites pour les hashes (VirusTotal)
 
