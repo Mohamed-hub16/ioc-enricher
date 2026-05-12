@@ -54,6 +54,29 @@
             </a>
           </li>
           {% endif %}
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+              <i class="bi bi-diagram-3 me-1"></i>Pivots
+            </a>
+            <ul class="dropdown-menu">
+              <li>
+                <a class="dropdown-item" href="{{ url_for('ioc.ttps_index') }}">
+                  <i class="bi bi-bullseye me-1"></i>TTPs MITRE ATT&amp;CK
+                </a>
+              </li>
+              <li>
+                <a class="dropdown-item" href="{{ url_for('ioc.families_index') }}">
+                  <i class="bi bi-bug me-1"></i>Familles de malware
+                </a>
+              </li>
+              <li><hr class="dropdown-divider"></li>
+              <li>
+                <a class="dropdown-item" href="{{ url_for('ioc.index', filter='malicious', sort='score') }}">
+                  <i class="bi bi-exclamation-triangle me-1"></i>Top menaces
+                </a>
+              </li>
+            </ul>
+          </li>
           {% if current_user.is_authenticated and current_user.is_admin %}
           <li class="nav-item">
             <a class="nav-link" href="{{ url_for('admin.users') }}">

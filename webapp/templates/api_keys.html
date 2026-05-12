@@ -84,7 +84,7 @@
       </div>
 
       <!-- Groq -->
-      <div class="card mb-4">
+      <div class="card mb-3">
         <div class="card-body">
           <label class="form-label fw-semibold">
             Groq API Key
@@ -99,7 +99,56 @@
                  placeholder="{% if current_user.groq_key_enc %}Laisser vide pour ne pas modifier{% else %}Votre clé Groq (synthèse IA){% endif %}"
                  autocomplete="new-password">
           <div class="form-text text-muted">
-            Utilisée pour générer le paragraphe d'analyse IA.
+            Utilisée pour générer le paragraphe d'analyse IA + la sortie structurée
+            (verdict, famille, TTPs).
+          </div>
+        </div>
+      </div>
+
+      <!-- GreyNoise -->
+      <div class="card mb-3">
+        <div class="card-body">
+          <label class="form-label fw-semibold">
+            GreyNoise Community API Key
+            <span class="badge bg-secondary ms-1" style="font-size:0.7rem;">Optionnelle</span>
+            {% if current_user.greynoise_key_enc %}
+            <span class="badge bg-success ms-1" style="font-size:0.7rem;">
+              <i class="bi bi-check-lg"></i> Configurée
+            </span>
+            {% endif %}
+          </label>
+          <input type="password" name="greynoise_key" class="form-control font-monospace"
+                 placeholder="{% if current_user.greynoise_key_enc %}Laisser vide pour ne pas modifier{% else %}Votre clé GreyNoise (free){% endif %}"
+                 autocomplete="new-password">
+          <div class="form-text text-muted">
+            Distingue les scanners Internet de masse (bruit) des IPs vraiment ciblées
+            sur les enrichissements IP. Free tier ~10k req/jour
+            (<a href="https://docs.greynoise.io/docs/using-the-greynoise-community-api"
+                target="_blank" rel="noopener" class="text-info">docs</a>).
+          </div>
+        </div>
+      </div>
+
+      <!-- abuse.ch unified Auth-Key (URLhaus, ThreatFox, MalwareBazaar) -->
+      <div class="card mb-4">
+        <div class="card-body">
+          <label class="form-label fw-semibold">
+            abuse.ch Auth-Key
+            <span class="badge bg-secondary ms-1" style="font-size:0.7rem;">Optionnelle</span>
+            {% if current_user.abuse_ch_key_enc %}
+            <span class="badge bg-success ms-1" style="font-size:0.7rem;">
+              <i class="bi bi-check-lg"></i> Configurée
+            </span>
+            {% endif %}
+          </label>
+          <input type="password" name="abuse_ch_key" class="form-control font-monospace"
+                 placeholder="{% if current_user.abuse_ch_key_enc %}Laisser vide pour ne pas modifier{% else %}Votre Auth-Key abuse.ch (URLhaus, ThreatFox, MalwareBazaar){% endif %}"
+                 autocomplete="new-password">
+          <div class="form-text text-muted">
+            Une seule clé pour <strong>URLhaus</strong> (URLs malware),
+            <strong>ThreatFox</strong> (IOC ↔ malware family) et
+            <strong>MalwareBazaar</strong> (hash lookup) — créer un compte sur
+            <a href="https://auth.abuse.ch/" target="_blank" rel="noopener" class="text-info">auth.abuse.ch</a>.
           </div>
         </div>
       </div>
