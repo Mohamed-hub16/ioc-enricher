@@ -89,9 +89,24 @@ def create_app() -> Flask:
             db.session.rollback()
 
         # Migration: add encrypted API key columns to users table
-        for _col in ["virustotal_key_enc", "abuseipdb_key_enc", "urlscan_key_enc", "groq_key_enc"]:
+        for _col in ["virustotal_key_enc", "abuseipdb_key_enc", "urlscan_key_enc",
+                     "groq_key_enc", "greynoise_key_enc", "abusech_key_enc"]:
             try:
                 db.session.execute(db.text(f"ALTER TABLE users ADD COLUMN {_col} TEXT"))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+
+        # Migration: add extended IOCRecord columns (PR #1)
+        for _col_def in [
+            "verdict VARCHAR(20)",
+            "malware_family VARCHAR(120)",
+            "tlp VARCHAR(10) DEFAULT 'WHITE'",
+            "tags_json TEXT",
+            "score_breakdown_json TEXT",
+        ]:
+            try:
+                db.session.execute(db.text(f"ALTER TABLE ioc_records ADD COLUMN {_col_def}"))
                 db.session.commit()
             except Exception:
                 db.session.rollback()

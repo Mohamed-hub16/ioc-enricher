@@ -31,6 +31,11 @@ def _ioc_to_dict(record: IOCRecord, include_raw: bool = False) -> dict:
         "type": record.ioc_type,
         "threat_score": record.threat_score or 0,
         "is_malicious": record.is_malicious,
+        "verdict": record.verdict,
+        "malware_family": record.malware_family,
+        "tlp": record.tlp or "WHITE",
+        "tags": record.get_tags(),
+        "score_breakdown": record.get_score_breakdown(),
         "view_count": record.view_count or 0,
         "enriched_at": record.enriched_at.isoformat() + "Z",
         "enriched_by": record.enriched_by,
@@ -129,7 +134,7 @@ def enrich_ioc():
 
     keys = g.api_user.get_api_keys()
     try:
-        ioc_type, raw, paragraph, threat_score = _enrich_ioc(value, keys=keys)
+        ioc_type, raw, paragraph, threat_score, score_breakdown, malware_family = _enrich_ioc(value, keys=keys)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception:
@@ -145,6 +150,9 @@ def enrich_ioc():
         existing.set_results(raw)
         existing.paragraph = paragraph
         existing.threat_score = threat_score
+        existing.malware_family = malware_family
+        existing.verdict = "malicious" if threat_score > 0 else "clean"
+        existing.set_score_breakdown(score_breakdown)
         record = existing
     else:
         record = IOCRecord(
@@ -153,8 +161,11 @@ def enrich_ioc():
             enriched_by=g.api_user.email,
             paragraph=paragraph,
             threat_score=threat_score,
+            malware_family=malware_family,
+            verdict="malicious" if threat_score > 0 else "clean",
         )
         record.set_results(raw)
+        record.set_score_breakdown(score_breakdown)
         db.session.add(record)
 
     db.session.commit()

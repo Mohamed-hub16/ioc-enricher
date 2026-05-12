@@ -26,6 +26,8 @@ class User(UserMixin, db.Model):
     abuseipdb_key_enc  = db.Column(db.Text, nullable=True)
     urlscan_key_enc    = db.Column(db.Text, nullable=True)
     groq_key_enc       = db.Column(db.Text, nullable=True)
+    greynoise_key_enc  = db.Column(db.Text, nullable=True)
+    abusech_key_enc    = db.Column(db.Text, nullable=True)
 
     def generate_rest_api_key(self) -> str:
         """Generate a new REST API token. Store its SHA-256 hash; return the plain token (shown once)."""
@@ -61,12 +63,14 @@ class User(UserMixin, db.Model):
         return bool(self.virustotal_key_enc)
 
     def set_api_keys(self, vt: str = "", abuse: str = "", urlscan: str = "",
-                     groq: str = "") -> None:
+                     groq: str = "", greynoise: str = "", abusech: str = "") -> None:
         from src.crypto import encrypt
-        if vt:     self.virustotal_key_enc = encrypt(vt)
-        if abuse:  self.abuseipdb_key_enc  = encrypt(abuse)
-        if urlscan:self.urlscan_key_enc    = encrypt(urlscan)
-        if groq:   self.groq_key_enc       = encrypt(groq)
+        if vt:        self.virustotal_key_enc = encrypt(vt)
+        if abuse:     self.abuseipdb_key_enc  = encrypt(abuse)
+        if urlscan:   self.urlscan_key_enc    = encrypt(urlscan)
+        if groq:      self.groq_key_enc       = encrypt(groq)
+        if greynoise: self.greynoise_key_enc  = encrypt(greynoise)
+        if abusech:   self.abusech_key_enc    = encrypt(abusech)
 
     def get_api_keys(self) -> dict:
         from src.crypto import decrypt
@@ -75,6 +79,8 @@ class User(UserMixin, db.Model):
             "ABUSEIPDB_API_KEY":  decrypt(self.abuseipdb_key_enc or ""),
             "URLSCAN_API_KEY":    decrypt(self.urlscan_key_enc or ""),
             "GROQ_API_KEY":       decrypt(self.groq_key_enc or ""),
+            "GREYNOISE_API_KEY":  decrypt(self.greynoise_key_enc or ""),
+            "ABUSE_CH_API_KEY":   decrypt(self.abusech_key_enc or ""),
         }
 
 
@@ -90,12 +96,30 @@ class IOCRecord(db.Model):
     paragraph = db.Column(db.Text, nullable=True)
     threat_score = db.Column(db.Integer, default=0, nullable=False, server_default="0")
     view_count = db.Column(db.Integer, default=0, nullable=False, server_default="0")
+    # Extended fields from PR #1
+    verdict = db.Column(db.String(20), nullable=True)           # malicious | suspicious | clean
+    malware_family = db.Column(db.String(120), nullable=True)   # e.g. "Cobalt Strike"
+    tlp = db.Column(db.String(10), nullable=True, default="WHITE")  # TLP 2.0: RED/AMBER/GREEN/WHITE
+    tags_json = db.Column(db.Text, nullable=True)               # JSON list of analyst tags
+    score_breakdown_json = db.Column(db.Text, nullable=True)    # JSON dict per-source scores
 
     def get_results(self) -> list[dict]:
         return json.loads(self.raw_results) if self.raw_results else []
 
     def set_results(self, results: list[dict]) -> None:
         self.raw_results = json.dumps(results, ensure_ascii=False)
+
+    def get_tags(self) -> list[str]:
+        return json.loads(self.tags_json) if self.tags_json else []
+
+    def set_tags(self, tags: list[str]) -> None:
+        self.tags_json = json.dumps(tags, ensure_ascii=False)
+
+    def get_score_breakdown(self) -> dict:
+        return json.loads(self.score_breakdown_json) if self.score_breakdown_json else {}
+
+    def set_score_breakdown(self, breakdown: dict) -> None:
+        self.score_breakdown_json = json.dumps(breakdown, ensure_ascii=False)
 
     @property
     def age_days(self) -> int:

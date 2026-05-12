@@ -3,6 +3,8 @@
 import os
 from src.models import EnrichmentResult
 
+_GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+
 _SYSTEM_IP_MALICIOUS = """Tu es un analyste CERT/SOC sénior rédigeant un rapport de threat intelligence opérationnel. \
 Tu reçois des données sur une adresse IP extraites de AbuseIPDB, VirusTotal, ip-api.com et urlscan.io. \
 Le score de menace est supérieur à 0.
@@ -226,7 +228,7 @@ def synthesize(results: list[EnrichmentResult], threat_score: int = 0, groq_key:
 
         client = Groq(api_key=api_key)
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=_GROQ_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Décris cet IOC :\n\n{context}"},
@@ -238,3 +240,34 @@ def synthesize(results: list[EnrichmentResult], threat_score: int = 0, groq_key:
     except Exception as exc:
         print(f"    [!] Groq synthesis error : {exc}")
         return None
+
+
+def synthesize_full(
+    results: list[EnrichmentResult],
+    threat_score: int = 0,
+    groq_key: str = "",
+) -> dict:
+    """Return {"paragraph": str|None, "verdict": str, "malware_family": str|None}."""
+    paragraph = synthesize(results, threat_score, groq_key)
+    is_malicious = threat_score > 0
+    verdict = "malicious" if is_malicious else "clean"
+
+    malware_family = None
+    if results:
+        for r in results:
+            if r.source == "VirusTotal" and r.data:
+                malware_family = r.data.get("popular_threat_label")
+                if malware_family:
+                    break
+        if not malware_family:
+            for r in results:
+                if r.source in ("ThreatFox", "MalwareBazaar") and r.data:
+                    items = r.data.get("results") or []
+                    if items and isinstance(items, list):
+                        malware_family = items[0].get("malware_printable") or items[0].get("malware")
+                    elif r.data.get("signature"):
+                        malware_family = r.data.get("signature")
+                    if malware_family:
+                        break
+
+    return {"paragraph": paragraph, "verdict": verdict, "malware_family": malware_family}

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Famille : {{ family }} — IOC Enricher{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center gap-3 mb-4">
+  <a href="{{ url_for('ioc.index') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <div>
+    <h5 class="mb-0">
+      <i class="bi bi-diagram-3 text-warning me-2"></i>
+      Pivot — famille <span class="ioc-value text-warning">{{ family }}</span>
+    </h5>
+    <p class="text-muted small mb-0">{{ records | length }} IOC(s) associé(s) à cette famille</p>
+  </div>
+</div>
+
+{% if records %}
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover align-middle mb-0" style="font-size:.875rem;">
+      <thead style="background:#1c2128; font-size:.8rem; text-transform:uppercase; letter-spacing:.4px;">
+        <tr>
+          <th class="ps-3" style="width:40%;">IOC</th>
+          <th style="width:80px;">Type</th>
+          <th style="width:110px;">Score</th>
+          <th>Famille</th>
+          <th style="width:48px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in records %}
+        <tr>
+          <td class="ps-3 ioc-value small" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:0;">
+            <span title="{{ r.value }}">{{ r.value }}</span>
+          </td>
+          <td><span class="badge badge-{{ r.ioc_type }}">{{ r.ioc_type }}</span></td>
+          <td>
+            {% set s = [r.threat_score or 0, 100] | min %}
+            {% if s == 0 %}{% set sc = '#2ea043' %}
+            {% elif s <= 30 %}{% set sc = '#d29922' %}
+            {% elif s <= 70 %}{% set sc = '#fd7e14' %}
+            {% else %}{% set sc = '#da3633' %}{% endif %}
+            <div class="d-flex align-items-center gap-2">
+              <span class="fw-bold ioc-value small" style="color:{{ sc }}; min-width:28px;">{{ s }}</span>
+              <div style="flex:1; background:#0d1117; border-radius:4px; height:5px; overflow:hidden;">
+                <div style="width:{{ [s,3]|max }}%; height:100%; background:{{ sc }}; border-radius:4px;"></div>
+              </div>
+            </div>
+          </td>
+          <td class="small text-muted">{{ r.malware_family or '—' }}</td>
+          <td class="pe-2">
+            <a href="{{ url_for('ioc.detail', value=r.value) }}" class="btn btn-sm btn-outline-secondary">
+              <i class="bi bi-eye"></i>
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="alert alert-secondary">
+  <i class="bi bi-info-circle me-2"></i>Aucun IOC associé à cette famille.
+</div>
+{% endif %}
+{% endblock %}

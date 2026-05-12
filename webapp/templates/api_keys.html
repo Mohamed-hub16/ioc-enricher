@@ -84,7 +84,7 @@
       </div>
 
       <!-- Groq -->
-      <div class="card mb-4">
+      <div class="card mb-3">
         <div class="card-body">
           <label class="form-label fw-semibold">
             Groq API Key
@@ -104,6 +104,48 @@
         </div>
       </div>
 
+      <!-- GreyNoise -->
+      <div class="card mb-3">
+        <div class="card-body">
+          <label class="form-label fw-semibold">
+            GreyNoise API Key
+            <span class="badge bg-secondary ms-1" style="font-size:0.7rem;">Optionnelle</span>
+            {% if current_user.greynoise_key_enc %}
+            <span class="badge bg-success ms-1" style="font-size:0.7rem;">
+              <i class="bi bi-check-lg"></i> Configurée
+            </span>
+            {% endif %}
+          </label>
+          <input type="password" name="greynoise_key" class="form-control font-monospace"
+                 placeholder="{% if current_user.greynoise_key_enc %}Laisser vide pour ne pas modifier{% else %}Votre clé GreyNoise{% endif %}"
+                 autocomplete="new-password">
+          <div class="form-text text-muted">
+            Contexte de scanning IP (community API).
+          </div>
+        </div>
+      </div>
+
+      <!-- abuse.ch (ThreatFox + MalwareBazaar) -->
+      <div class="card mb-4">
+        <div class="card-body">
+          <label class="form-label fw-semibold">
+            abuse.ch API Key
+            <span class="badge bg-secondary ms-1" style="font-size:0.7rem;">Optionnelle</span>
+            {% if current_user.abusech_key_enc %}
+            <span class="badge bg-success ms-1" style="font-size:0.7rem;">
+              <i class="bi bi-check-lg"></i> Configurée
+            </span>
+            {% endif %}
+          </label>
+          <input type="password" name="abusech_key" class="form-control font-monospace"
+                 placeholder="{% if current_user.abusech_key_enc %}Laisser vide pour ne pas modifier{% else %}Votre clé abuse.ch{% endif %}"
+                 autocomplete="new-password">
+          <div class="form-text text-muted">
+            Utilisée pour ThreatFox (IP/domaine/hash) et MalwareBazaar (hash).
+            Créez un compte sur <a href="https://auth.abuse.ch/" target="_blank" rel="noopener">auth.abuse.ch</a>.
+          </div>
+        </div>
+      </div>
 
       <div class="d-flex gap-2">
         <button type="submit" class="btn btn-warning">

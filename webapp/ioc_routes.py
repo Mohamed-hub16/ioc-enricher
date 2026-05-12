@@ -2,8 +2,9 @@ import ipaddress
 import logging
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from flask import Blueprint, render_template, redirect, url_for, flash, request, abort, send_file
+from flask import Blueprint, render_template, redirect, url_for, flash, request, abort, send_file, jsonify
 from flask_login import login_required, current_user
 
 logger = logging.getLogger(__name__)
@@ -214,7 +215,44 @@ def _all_sources_failed(raw_results: list[dict]) -> bool:
     return bool(raw_results) and all(res.get("error") for res in raw_results)
 
 
-def _enrich_ioc(value: str, keys: dict | None = None) -> tuple[str, list[dict], str | None, int]:
+def _compute_score_breakdown(raw_results: list[dict]) -> dict:
+    """Return per-source scores that contributed to the final threat score."""
+    breakdown = {}
+    for res in raw_results:
+        if res.get("error") or not res.get("data"):
+            continue
+        data = res["data"]
+        src = res["source"]
+        if src == "AbuseIPDB":
+            val = data.get("abuse_confidence_score")
+            if val is not None:
+                breakdown["AbuseIPDB"] = int(val)
+        elif src == "VirusTotal":
+            malicious = data.get("malicious", 0) or 0
+            total = data.get("total_engines", 0) or 0
+            if total > 0:
+                breakdown["VirusTotal"] = round(malicious / total * 100)
+        elif src == "URLhaus":
+            if data.get("found"):
+                breakdown["URLhaus"] = data.get("url_count", 0)
+        elif src == "ThreatFox":
+            if data.get("found"):
+                breakdown["ThreatFox"] = len(data.get("results") or [])
+        elif src == "GreyNoise":
+            cls = data.get("classification")
+            if cls == "malicious":
+                breakdown["GreyNoise"] = "malicious"
+            elif cls == "benign":
+                breakdown["GreyNoise"] = "benign"
+        elif src == "Shodan InternetDB":
+            vulns = data.get("vulns") or []
+            if vulns:
+                breakdown["Shodan InternetDB"] = len(vulns)
+    return breakdown
+
+
+def _enrich_ioc(value: str, keys: dict | None = None) -> tuple[str, list[dict], str | None, int, dict, str | None]:
+    """Return (ioc_type, raw, paragraph, threat_score, score_breakdown, malware_family)."""
     iocs, _ = parse_iocs([value])
     if not iocs:
         raise ValueError(f"IOC non reconnu : {value!r}")
@@ -224,12 +262,37 @@ def _enrich_ioc(value: str, keys: dict | None = None) -> tuple[str, list[dict], 
     if not enrichers:
         raise ValueError(f"Aucun enrichisseur disponible pour le type '{ioc.type}'")
 
-    result_objects = [fn(ioc, keys=keys) for fn in enrichers]
+    # Run enrichers in parallel, preserving original ordering
+    result_slots: list[object | None] = [None] * len(enrichers)
+
+    def _run(idx, fn):
+        return idx, fn(ioc, keys=keys)
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futures = {pool.submit(_run, i, fn): i for i, fn in enumerate(enrichers)}
+        for future in as_completed(futures):
+            try:
+                idx, r = future.result()
+                result_slots[idx] = r
+            except Exception as exc:
+                logger.error("Enricher error: %s", exc)
+
+    result_objects = [r for r in result_slots if r is not None]
+
     raw = [{"source": r.source, "data": r.data, "error": r.error} for r in result_objects]
     threat_score = _compute_threat_score(raw)
+    score_breakdown = _compute_score_breakdown(raw)
+
     groq_key = (keys or {}).get("GROQ_API_KEY", "") or os.getenv("GROQ_API_KEY", "")
-    paragraph = groq_synthesizer.synthesize(result_objects, threat_score, groq_key=groq_key) if groq_key else None
-    return ioc.type, raw, paragraph, threat_score
+    if groq_key:
+        synthesis = groq_synthesizer.synthesize_full(result_objects, threat_score, groq_key=groq_key)
+        paragraph = synthesis["paragraph"]
+        malware_family = synthesis["malware_family"]
+    else:
+        paragraph = None
+        malware_family = None
+
+    return ioc.type, raw, paragraph, threat_score, score_breakdown, malware_family
 
 
 @ioc_bp.route("/")
@@ -340,7 +403,7 @@ def enrich():
                 return redirect(url_for("ioc.detail", value=value))
 
             try:
-                ioc_type, raw, paragraph, threat_score = _enrich_ioc(value, keys=keys)
+                ioc_type, raw, paragraph, threat_score, score_breakdown, malware_family = _enrich_ioc(value, keys=keys)
             except ValueError as exc:
                 flash(str(exc), "danger")
                 return render_template("enrich.html", prefill=value, max_batch=_MAX_BATCH)
@@ -364,13 +427,19 @@ def enrich():
                 existing.set_results(raw)
                 existing.paragraph = paragraph
                 existing.threat_score = threat_score
+                existing.malware_family = malware_family
+                existing.verdict = "malicious" if threat_score > 0 else "clean"
+                existing.set_score_breakdown(score_breakdown)
             else:
                 record = IOCRecord(
                     value=value, ioc_type=ioc_type,
                     enriched_by=current_user.email,
                     paragraph=paragraph, threat_score=threat_score,
+                    malware_family=malware_family,
+                    verdict="malicious" if threat_score > 0 else "clean",
                 )
                 record.set_results(raw)
+                record.set_score_breakdown(score_breakdown)
                 db.session.add(record)
 
             db.session.commit()
@@ -407,7 +476,7 @@ def enrich():
                 continue
 
             try:
-                ioc_type, raw_res, paragraph, threat_score = _enrich_ioc(value, keys=keys)
+                ioc_type, raw_res, paragraph, threat_score, score_breakdown, malware_family = _enrich_ioc(value, keys=keys)
             except Exception as exc:
                 logger.error("Bulk enrichment error for %r: %s", value, exc)
                 entry["message"] = "Erreur d'enrichissement"
@@ -427,14 +496,20 @@ def enrich():
                 existing.set_results(raw_res)
                 existing.paragraph = paragraph
                 existing.threat_score = threat_score
+                existing.malware_family = malware_family
+                existing.verdict = "malicious" if threat_score > 0 else "clean"
+                existing.set_score_breakdown(score_breakdown)
                 entry["status"] = "updated"
             else:
                 record = IOCRecord(
                     value=value, ioc_type=ioc_type,
                     enriched_by=current_user.email,
                     paragraph=paragraph, threat_score=threat_score,
+                    malware_family=malware_family,
+                    verdict="malicious" if threat_score > 0 else "clean",
                 )
                 record.set_results(raw_res)
+                record.set_score_breakdown(score_breakdown)
                 db.session.add(record)
                 entry["status"] = "new"
 
@@ -558,6 +633,48 @@ def export_excel():
         as_attachment=True,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+
+@ioc_bp.route("/ioc/<path:value>/tlp", methods=["POST"])
+@login_required
+def set_tlp(value: str):
+    if not current_user.is_approved:
+        abort(403)
+    record = IOCRecord.query.filter_by(value=value).first_or_404()
+    tlp = request.form.get("tlp", "WHITE").upper()
+    if tlp not in ("RED", "AMBER", "GREEN", "WHITE"):
+        flash("Valeur TLP invalide.", "danger")
+    else:
+        record.tlp = tlp
+        db.session.commit()
+        flash(f"TLP mis à jour : TLP:{tlp}", "success")
+    return redirect(url_for("ioc.detail", value=value))
+
+
+@ioc_bp.route("/ioc/<path:value>/tags", methods=["POST"])
+@login_required
+def set_tags(value: str):
+    if not current_user.is_approved:
+        abort(403)
+    record = IOCRecord.query.filter_by(value=value).first_or_404()
+    raw_tags = request.form.get("tags", "")
+    tags = [t.strip() for t in re.split(r"[,;]+", raw_tags) if t.strip()]
+    record.set_tags(tags)
+    db.session.commit()
+    flash("Tags mis à jour.", "success")
+    return redirect(url_for("ioc.detail", value=value))
+
+
+@ioc_bp.route("/pivot/family/<path:family>")
+def pivot_family(family: str):
+    records = (
+        IOCRecord.query
+        .filter(IOCRecord.malware_family.ilike(f"%{family}%"))
+        .order_by(IOCRecord.threat_score.desc(), IOCRecord.enriched_at.desc())
+        .limit(200)
+        .all()
+    )
+    return render_template("pivot_family.html", family=family, records=records)
 
 
 @ioc_bp.route("/ioc/<path:value>/comment", methods=["POST"])

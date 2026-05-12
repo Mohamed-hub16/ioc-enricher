@@ -84,16 +84,21 @@ def api_keys():
         return redirect(url_for("ioc.index"))
 
     if request.method == "POST":
-        vt             = request.form.get("virustotal_key", "").strip()
-        abuse          = request.form.get("abuseipdb_key", "").strip()
-        urlscan        = request.form.get("urlscan_key", "").strip()
-        groq           = request.form.get("groq_key", "").strip()
+        vt        = request.form.get("virustotal_key", "").strip()
+        abuse     = request.form.get("abuseipdb_key", "").strip()
+        urlscan   = request.form.get("urlscan_key", "").strip()
+        groq      = request.form.get("groq_key", "").strip()
+        greynoise = request.form.get("greynoise_key", "").strip()
+        abusech   = request.form.get("abusech_key", "").strip()
         if not vt and not current_user.virustotal_key_enc:
             flash("La clé VirusTotal est obligatoire.", "danger")
             reveal_key = session.pop("reveal_api_key", None)
             return render_template("api_keys.html", reveal_key=reveal_key)
 
-        current_user.set_api_keys(vt=vt, abuse=abuse, urlscan=urlscan, groq=groq)
+        current_user.set_api_keys(
+            vt=vt, abuse=abuse, urlscan=urlscan, groq=groq,
+            greynoise=greynoise, abusech=abusech,
+        )
         db.session.commit()
         flash("Clés API enregistrées avec succès.", "success")
         return redirect(url_for("ioc.enrich"))
