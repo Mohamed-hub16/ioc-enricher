@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
-"""
-One-shot script: recompute threat_score for all existing IOCRecords.
-Run once after deploying the new scoring formula.
+"""Re-calcule threat_score + score_breakdown_json pour tous les IOCRecords.
+
+À lancer une fois après une mise à jour de la formule de scoring
+(ex: ajout de bonus GreyNoise / URLhaus / ThreatFox / MalwareBazaar).
+
+Note : les anciens IOCs n'ayant pas été enrichis par les nouvelles sources
+verront simplement leur score conservé tel quel (aucun bonus possible
+sans données). Pour profiter du nouveau scoring, ré-enrichir.
 
     python3 recompute_scores.py
 """
 
+import os
 from dotenv import load_dotenv
 load_dotenv()
+os.environ.setdefault("SECRET_KEY", "test" * 16)
 
 from webapp import create_app, db
 from webapp.models import IOCRecord
-from webapp.ioc_routes import _compute_threat_score
+from webapp.ioc_routes import _compute_score_breakdown
 
 
 def main():
@@ -25,14 +32,17 @@ def main():
             raw = record.get_results()
             if not raw:
                 continue
-            new_score = _compute_threat_score(raw)
-            if new_score != (record.threat_score or 0):
-                print(f"  {record.value:<40} {record.threat_score or 0:>3} → {new_score}")
+            bd = _compute_score_breakdown(raw)
+            new_score = bd["total"]
+            old_score = record.threat_score or 0
+            if new_score != old_score:
+                print(f"  {record.value:<40} {old_score:>3} → {new_score}")
                 record.threat_score = new_score
-                updated += 1
+            record.set_score_breakdown(bd)
+            updated += 1
 
         db.session.commit()
-        print(f"\nTerminé : {updated} score(s) mis à jour.")
+        print(f"\nTerminé : {updated} record(s) traité(s).")
 
 
 if __name__ == "__main__":

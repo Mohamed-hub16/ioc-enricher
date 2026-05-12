@@ -50,6 +50,11 @@ def create_app() -> Flask:
         flash("Accès non autorisé.", "danger")
         return redirect(url_for("ioc.index"))
 
+    @app.context_processor
+    def inject_constants():
+        from webapp.models import STALE_DAYS, TLP_LEVELS
+        return {"STALE_DAYS": STALE_DAYS, "TLP_LEVELS": TLP_LEVELS}
+
     from .auth import auth_bp
     from .ioc_routes import ioc_bp
     from .admin_routes import admin_bp
@@ -89,9 +94,41 @@ def create_app() -> Flask:
             db.session.rollback()
 
         # Migration: add encrypted API key columns to users table
-        for _col in ["virustotal_key_enc", "abuseipdb_key_enc", "urlscan_key_enc", "groq_key_enc"]:
+        for _col in [
+            "virustotal_key_enc", "abuseipdb_key_enc", "urlscan_key_enc", "groq_key_enc",
+            "greynoise_key_enc", "abuse_ch_key_enc",
+        ]:
             try:
                 db.session.execute(db.text(f"ALTER TABLE users ADD COLUMN {_col} TEXT"))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+
+        # Migration: structured Groq output, score breakdown, TLP, tags
+        for _stmt in [
+            "ALTER TABLE ioc_records ADD COLUMN structured_json TEXT",
+            "ALTER TABLE ioc_records ADD COLUMN verdict VARCHAR(20)",
+            "ALTER TABLE ioc_records ADD COLUMN malware_family VARCHAR(120)",
+            "ALTER TABLE ioc_records ADD COLUMN score_breakdown_json TEXT",
+            "ALTER TABLE ioc_records ADD COLUMN tlp VARCHAR(15) NOT NULL DEFAULT 'AMBER'",
+            "ALTER TABLE ioc_records ADD COLUMN tags_json TEXT",
+        ]:
+            try:
+                db.session.execute(db.text(_stmt))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+
+        # Indexes for the new filter columns (idempotent)
+        for _idx in [
+            "CREATE INDEX IF NOT EXISTS ix_ioc_records_verdict ON ioc_records (verdict)",
+            "CREATE INDEX IF NOT EXISTS ix_ioc_records_malware_family ON ioc_records (malware_family)",
+            "CREATE INDEX IF NOT EXISTS ix_ioc_records_ioc_type ON ioc_records (ioc_type)",
+            "CREATE INDEX IF NOT EXISTS ix_ioc_records_enriched_at ON ioc_records (enriched_at)",
+            "CREATE INDEX IF NOT EXISTS ix_ioc_records_threat_score ON ioc_records (threat_score)",
+        ]:
+            try:
+                db.session.execute(db.text(_idx))
                 db.session.commit()
             except Exception:
                 db.session.rollback()
