@@ -298,11 +298,23 @@ def synthesize_full(
     return {"paragraph": paragraph, "verdict": verdict, "malware_family": malware_family}
 
 
-def _extract_family(results: list[EnrichmentResult]) -> str | None:
-    """Extract an actual malware family name.
+_GENERIC_SIGNERS = frozenset({
+    "microsoft windows", "microsoft corporation", "windows", "verisign",
+    "thawte", "digicert", "comodo", "sectigo", "globalsign", "entrust",
+    "symantec", "certum", "ssl.com", "godaddy", "amazon",
+})
+_INFRA_TAGS = frozenset({"tor", "vpn", "proxy", "cdn", "anonymizer", "i2p", "bulletproof"})
 
-    Only uses authoritative sources — NOT VT behavioral tags or crowdsourced
-    context titles, which are noisy and not proper family identifiers.
+
+def _extract_family(results: list[EnrichmentResult]) -> str | None:
+    """Extract a malware family name or known tool/software identifier.
+
+    Priority:
+    1. VT popular_threat_label / popular_threat_classification (hashes — authoritative)
+    2. ThreatFox / MalwareBazaar (real family names, may be blocked in prod)
+    3. VT ExifTool ProductName / InternalName (identifies signed software like AnyDesk)
+    4. VT signature_info O= field (certificate organisation name)
+    5. Known infrastructure VT tags (tor, vpn, proxy…)
     """
     vt_data = next(
         (r.data for r in results if r.source == "VirusTotal" and r.data and not r.error),
@@ -318,8 +330,7 @@ def _extract_family(results: list[EnrichmentResult]) -> str | None:
         if isinstance(ptc, dict) and ptc.get("label"):
             return ptc["label"]
 
-    # 2. ThreatFox / MalwareBazaar — actual named families (e.g. "Cobalt Strike", "Emotet")
-    #    Only available when not blocked (local / non-datacenter hosting)
+    # 2. ThreatFox / MalwareBazaar — actual named families
     for r in results:
         if r.source in ("ThreatFox", "MalwareBazaar") and r.data and not r.error:
             items = r.data.get("results") or []
@@ -331,6 +342,27 @@ def _extract_family(results: list[EnrichmentResult]) -> str | None:
             if family:
                 return family
 
-    # VT tags, threat_labels, crowdsourced_context titles are intentionally
-    # excluded — they are behavioral/categorical, not malware family names.
+    if vt_data:
+        # 3. ExifTool ProductName / InternalName — identifies signed software (hashes)
+        exif = vt_data.get("exiftool") or {}
+        product = (exif.get("ProductName") or exif.get("InternalName") or "").strip()
+        if product and len(product) > 2:
+            return product
+
+        # 4. Certificate subject O= field — signed software identity
+        sig = vt_data.get("signature_info") or {}
+        subject = (sig.get("subject") or "").strip()
+        for part in subject.split(","):
+            part = part.strip()
+            if part.startswith("O="):
+                name = part[2:].strip()
+                if name and len(name) > 3 and name.lower() not in _GENERIC_SIGNERS:
+                    return name
+                break
+
+        # 5. Known infrastructure VT tags — IPs/domains (tor, vpn, proxy…)
+        for tag in (vt_data.get("tags") or []):
+            if tag and tag.lower() in _INFRA_TAGS:
+                return tag.lower()
+
     return None

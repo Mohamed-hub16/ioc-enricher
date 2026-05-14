@@ -107,22 +107,51 @@ def migrate_db():
             "SELECT id, raw_results FROM ioc_records WHERE raw_results IS NOT NULL"
         )).fetchall()
 
+        _GENERIC_SIGNERS = frozenset({
+            "microsoft windows", "microsoft corporation", "windows", "verisign",
+            "thawte", "digicert", "comodo", "sectigo", "globalsign", "entrust",
+            "symantec", "certum", "ssl.com", "godaddy", "amazon",
+        })
+        _INFRA_TAGS = frozenset({"tor", "vpn", "proxy", "cdn", "anonymizer", "i2p", "bulletproof"})
+
         def _pick_family(results_json: list) -> str | None:
             vt = next((r.get("data") for r in results_json
                        if r.get("source") == "VirusTotal" and r.get("data")
                        and not r.get("error")), None)
+            # 1. VT malware classification (hashes)
             if vt:
                 f = vt.get("popular_threat_label")
                 if f: return f
                 ptc = vt.get("popular_threat_classification")
                 if isinstance(ptc, dict) and ptc.get("label"):
                     return ptc["label"]
+            # 2. ThreatFox / MalwareBazaar
             for r in results_json:
                 if r.get("source") in ("ThreatFox", "MalwareBazaar") and r.get("data"):
                     items = r["data"].get("results") or []
                     f = (items[0].get("malware_printable") or items[0].get("malware")
                          if items else r["data"].get("signature"))
                     if f: return f
+            if vt:
+                # 3. ExifTool ProductName / InternalName (hashes)
+                exif = vt.get("exiftool") or {}
+                product = (exif.get("ProductName") or exif.get("InternalName") or "").strip()
+                if product and len(product) > 2:
+                    return product
+                # 4. Certificate subject O= field
+                sig = vt.get("signature_info") or {}
+                subject = (sig.get("subject") or "").strip()
+                for part in subject.split(","):
+                    part = part.strip()
+                    if part.startswith("O="):
+                        name = part[2:].strip()
+                        if name and len(name) > 3 and name.lower() not in _GENERIC_SIGNERS:
+                            return name
+                        break
+                # 5. Known infrastructure VT tags
+                for tag in (vt.get("tags") or []):
+                    if tag and tag.lower() in _INFRA_TAGS:
+                        return tag.lower()
             return None
 
         backfilled = 0

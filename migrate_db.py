@@ -73,6 +73,48 @@ def main():
                 "SELECT id, raw_results FROM ioc_records WHERE raw_results IS NOT NULL"
             )).fetchall()
 
+            _GENERIC_SIGNERS = frozenset({
+                "microsoft windows", "microsoft corporation", "windows", "verisign",
+                "thawte", "digicert", "comodo", "sectigo", "globalsign", "entrust",
+                "symantec", "certum", "ssl.com", "godaddy", "amazon",
+            })
+            _INFRA_TAGS = frozenset({"tor", "vpn", "proxy", "cdn", "anonymizer", "i2p", "bulletproof"})
+
+            def _pick_family(results: list) -> str | None:
+                vt = next((r.get("data") for r in results
+                           if r.get("source") == "VirusTotal" and r.get("data")
+                           and not r.get("error")), None)
+                if vt:
+                    f = vt.get("popular_threat_label")
+                    if f: return f
+                    ptc = vt.get("popular_threat_classification")
+                    if isinstance(ptc, dict) and ptc.get("label"):
+                        return ptc["label"]
+                for r in results:
+                    if r.get("source") in ("ThreatFox", "MalwareBazaar") and r.get("data"):
+                        items = r["data"].get("results") or []
+                        f = ((items[0].get("malware_printable") or items[0].get("malware"))
+                             if items else r["data"].get("signature"))
+                        if f: return f
+                if vt:
+                    exif = vt.get("exiftool") or {}
+                    product = (exif.get("ProductName") or exif.get("InternalName") or "").strip()
+                    if product and len(product) > 2:
+                        return product
+                    sig = vt.get("signature_info") or {}
+                    subject = (sig.get("subject") or "").strip()
+                    for part in subject.split(","):
+                        part = part.strip()
+                        if part.startswith("O="):
+                            name = part[2:].strip()
+                            if name and len(name) > 3 and name.lower() not in _GENERIC_SIGNERS:
+                                return name
+                            break
+                    for tag in (vt.get("tags") or []):
+                        if tag and tag.lower() in _INFRA_TAGS:
+                            return tag.lower()
+                return None
+
             backfilled = 0
             for row_id, raw in rows:
                 try:
@@ -80,23 +122,7 @@ def main():
                 except Exception:
                     continue
 
-                family = None
-                for r in results:
-                    if r.get("source") == "VirusTotal":
-                        d = r.get("data") or {}
-                        family = d.get("popular_threat_label")
-                        if not family:
-                            ptc = d.get("popular_threat_classification")
-                            if isinstance(ptc, dict):
-                                family = ptc.get("label")
-                        if family:
-                            break
-                    elif r.get("source") in ("ThreatFox", "MalwareBazaar") and r.get("data"):
-                        items = r["data"].get("results") or []
-                        family = ((items[0].get("malware_printable") or items[0].get("malware"))
-                                  if items else r["data"].get("signature"))
-                        if family:
-                            break
+                family = _pick_family(results)
 
                 if family:
                     conn.execute(text(

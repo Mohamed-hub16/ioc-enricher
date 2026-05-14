@@ -459,7 +459,7 @@
         <a class="nav-link {% if request.endpoint == 'ioc.detail' %}active{% endif %}"
            {% if request.endpoint == 'ioc.detail' %}href="{{ request.path }}"{% else %}href="#" style="opacity:.4;pointer-events:none;"{% endif %}>Détail</a>
         <a class="nav-link {% if request.endpoint in ('ioc.pivot_families', 'ioc.pivot_family') %}active{% endif %}"
-           href="{{ url_for('ioc.pivot_families') }}">Familles</a>
+           href="{{ url_for('ioc.pivot_families') }}">Outils &amp; Familles</a>
         {% if current_user.is_authenticated and current_user.is_approved %}
         <a class="nav-link {% if request.endpoint == 'ioc.enrich' %}active{% endif %}"
            href="{{ url_for('ioc.enrich') }}">Enrichir</a>

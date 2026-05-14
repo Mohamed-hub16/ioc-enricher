@@ -1,15 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Pivot familles — IOC Enricher{% endblock %}
+{% block title %}Outils &amp; Familles — IOC Enricher{% endblock %}
 
 {% block content %}
 <div class="d-flex align-items-center gap-3 mb-4">
   <div>
     <h5 class="mb-0 d-flex align-items-center gap-2" style="font-size:1rem;font-weight:700;">
       <i class="bi bi-diagram-3" style="color:var(--warning);"></i>
-      Pivot familles
+      Outils &amp; Familles
     </h5>
     <div style="font-size:.74rem;color:var(--text-muted);margin-top:.15rem;">
-      {{ families | length }} famille{{ 's' if families | length != 1 }} de malware détectées
+      {{ families | length }} label{{ 's' if families | length != 1 }} détecté{{ 's' if families | length != 1 }}
+      <span style="opacity:.5;margin:0 .3rem;">·</span>
+      malware, outils, infrastructure
     </div>
   </div>
 </div>
@@ -77,7 +79,10 @@
 {% else %}
 <div class="text-center py-5" style="color:var(--text-muted);">
   <i class="bi bi-diagram-3" style="font-size:2.5rem;display:block;margin-bottom:1rem;opacity:.3;"></i>
-  <div style="font-size:.9rem;">Aucune famille de malware détectée pour l'instant.</div>
+  <div style="font-size:.9rem;">Aucun label détecté pour l'instant.</div>
+  <div style="font-size:.78rem;color:var(--text-muted);margin-top:.4rem;">
+    Les familles de malware, outils (AnyDesk, Tor…) et infrastructure s'afficheront ici.
+  </div>
   <div class="mt-3">
     <a href="{{ url_for('ioc.enrich') }}" class="btn btn-primary btn-sm">
       <i class="bi bi-plus-circle me-1"></i>Enrichir des IOCs
