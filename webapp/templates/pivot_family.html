@@ -1,68 +1,366 @@
 {% extends "base.html" %}
-{% block title %}Famille : {{ family }} — IOC Enricher{% endblock %}
+{% block title %}Pivot · {{ family }} — IOC Enricher{% endblock %}
 
 {% block content %}
-<div class="d-flex align-items-center gap-3 mb-4">
-  <a href="{{ url_for('ioc.index') }}" class="btn btn-sm btn-outline-secondary">
-    <i class="bi bi-arrow-left"></i>
+<style>
+  /* ── Stat tiles ────────────────────────── */
+  .stat-tile {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 10px; padding: .75rem 1.1rem;
+    display: flex; flex-direction: column; align-items: center;
+    gap: .15rem; min-width: 90px;
+  }
+  .stat-tile .sv {
+    font-size: 1.5rem; font-weight: 700;
+    font-family: 'JetBrains Mono', monospace; line-height: 1;
+  }
+  .stat-tile .sl { font-size: .65rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .6px; color: var(--text-muted); }
+
+  /* ── IOC list rows ─────────────────────── */
+  .ioc-row {
+    display: flex; align-items: center; gap: .65rem;
+    padding: .6rem .9rem; border-radius: 8px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    text-decoration: none; color: inherit;
+    transition: border-color .13s, box-shadow .13s;
+  }
+  .ioc-row:hover {
+    border-color: var(--accent-dim);
+    box-shadow: 0 2px 12px rgba(201,169,110,.1);
+  }
+  .ioc-row.mal { border-left: 3px solid var(--danger); }
+  .ioc-row.susp { border-left: 3px solid var(--warning); }
+  .ioc-row.ok   { border-left: 3px solid var(--success); }
+
+  .sort-btn {
+    background: none; border: none; padding: .2rem .55rem;
+    border-radius: 5px; font-size: .75rem; font-weight: 500;
+    color: var(--text-secondary); cursor: pointer; text-decoration: none;
+    transition: background .11s, color .11s;
+  }
+  .sort-btn:hover { background: var(--bg-elevated); color: var(--text-primary); }
+  .sort-btn.active { background: rgba(201,169,110,.12); color: var(--accent); }
+
+  /* ── Graph container ───────────────────── */
+  #family-graph {
+    height: 310px;
+    background: var(--bg-elevated);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+
+  /* ── Synthesis box ─────────────────────── */
+  .synth-box {
+    background: rgba(232,151,26,.04);
+    border-left: 3px solid var(--warning);
+    border-radius: 0 8px 8px 0;
+    padding: 1rem 1.2rem;
+    line-height: 1.85; font-size: .875rem;
+    color: var(--text-primary);
+  }
+</style>
+
+<!-- Breadcrumb -->
+<div class="d-flex align-items-center gap-2 mb-3" style="font-size:.78rem;color:var(--text-muted);">
+  <a href="{{ url_for('ioc.index') }}" class="btn btn-sm btn-outline-secondary py-0 px-2">
+    <i class="bi bi-arrow-left" style="font-size:.75rem;"></i>
   </a>
+  <a href="{{ url_for('ioc.index') }}" style="color:var(--text-muted);text-decoration:none;">Historique</a>
+  <span style="opacity:.4;">/</span>
+  <a href="{{ url_for('ioc.pivot_families') }}" style="color:var(--text-muted);text-decoration:none;">Familles</a>
+  <span style="opacity:.4;">/</span>
+  <span style="color:var(--warning);font-weight:600;">{{ family }}</span>
+</div>
+
+<!-- Hero -->
+<div class="d-flex align-items-start justify-content-between flex-wrap gap-3 mb-4">
   <div>
-    <h5 class="mb-0">
-      <i class="bi bi-diagram-3 text-warning me-2"></i>
-      Pivot — famille <span class="ioc-value text-warning">{{ family }}</span>
-    </h5>
-    <p class="text-muted small mb-0">{{ records | length }} IOC(s) associé(s) à cette famille</p>
+    <div class="section-label mb-1">Famille de malware</div>
+    <h4 class="mb-1 d-flex align-items-center gap-2" style="font-size:1.35rem;font-weight:700;">
+      <i class="bi bi-diagram-3" style="color:var(--warning);font-size:1.1rem;"></i>
+      <span class="ioc-value" style="color:var(--warning);">{{ family }}</span>
+    </h4>
+    {% if stats %}
+    <div style="font-size:.76rem;color:var(--text-muted);">
+      vu pour la première fois le {{ stats.first_seen_fmt }}
+      &mdash; dernière activité {{ stats.last_seen_rel }}
+    </div>
+    {% endif %}
   </div>
 </div>
 
-{% if records %}
-<div class="card">
-  <div class="card-body p-0">
-    <table class="table table-sm table-hover align-middle mb-0" style="font-size:.875rem;">
-      <thead style="background:#1c2128; font-size:.8rem; text-transform:uppercase; letter-spacing:.4px;">
-        <tr>
-          <th class="ps-3" style="width:40%;">IOC</th>
-          <th style="width:80px;">Type</th>
-          <th style="width:110px;">Score</th>
-          <th>Famille</th>
-          <th style="width:48px;"></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in records %}
-        <tr>
-          <td class="ps-3 ioc-value small" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:0;">
-            <span title="{{ r.value }}">{{ r.value }}</span>
-          </td>
-          <td><span class="badge badge-{{ r.ioc_type }}">{{ r.ioc_type }}</span></td>
-          <td>
-            {% set s = [r.threat_score or 0, 100] | min %}
-            {% if s == 0 %}{% set sc = '#2ea043' %}
-            {% elif s <= 30 %}{% set sc = '#d29922' %}
-            {% elif s <= 70 %}{% set sc = '#fd7e14' %}
-            {% else %}{% set sc = '#da3633' %}{% endif %}
-            <div class="d-flex align-items-center gap-2">
-              <span class="fw-bold ioc-value small" style="color:{{ sc }}; min-width:28px;">{{ s }}</span>
-              <div style="flex:1; background:#0d1117; border-radius:4px; height:5px; overflow:hidden;">
-                <div style="width:{{ [s,3]|max }}%; height:100%; background:{{ sc }}; border-radius:4px;"></div>
-              </div>
-            </div>
-          </td>
-          <td class="small text-muted">{{ r.malware_family or '—' }}</td>
-          <td class="pe-2">
-            <a href="{{ url_for('ioc.detail', value=r.value) }}" class="btn btn-sm btn-outline-secondary">
-              <i class="bi bi-eye"></i>
-            </a>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+{% if stats %}
+<!-- Stat tiles -->
+<div class="d-flex flex-wrap gap-2 mb-4">
+  <div class="stat-tile">
+    <span class="sv" style="color:var(--text-primary);">{{ stats.total }}</span>
+    <span class="sl">IOCs liés</span>
+  </div>
+  {% if stats.ip > 0 %}
+  <div class="stat-tile">
+    <span class="sv" style="color:#4d8ef0;">{{ stats.ip }}</span>
+    <span class="sl">IPs</span>
+  </div>
+  {% endif %}
+  {% if stats.domain > 0 %}
+  <div class="stat-tile">
+    <span class="sv" style="color:#9a6fd8;">{{ stats.domain }}</span>
+    <span class="sl">Domaines</span>
+  </div>
+  {% endif %}
+  {% if stats.hash > 0 %}
+  <div class="stat-tile">
+    <span class="sv" style="color:#c4850a;">{{ stats.hash }}</span>
+    <span class="sl">Hashes</span>
+  </div>
+  {% endif %}
+  <div class="stat-tile">
+    <span class="sv" style="color:var(--danger);">{{ stats.malicious }}</span>
+    <span class="sl">Malveillants</span>
   </div>
 </div>
-{% else %}
-<div class="alert alert-secondary">
-  <i class="bi bi-info-circle me-2"></i>Aucun IOC associé à cette famille.
+
+<!-- Synthesis + graph -->
+<div class="row g-3 mb-4">
+
+  <!-- Synthesis -->
+  <div class="col-lg-7">
+    <div class="card h-100">
+      <div class="card-header d-flex align-items-center gap-2">
+        <i class="bi bi-cpu text-warning" style="font-size:.85rem;"></i>
+        <span class="small fw-semibold" style="text-transform:uppercase;letter-spacing:.5px;font-size:.7rem;">
+          Synthèse famille
+        </span>
+        <span class="badge ms-auto"
+              style="background:rgba(232,151,26,.15);color:#f5b43a;font-size:.6rem;">IA · Groq</span>
+      </div>
+      <div class="card-body">
+        {% if synthesis %}
+        <div class="synth-box">{{ synthesis }}</div>
+        {% else %}
+        <div class="d-flex flex-column align-items-center justify-content-center py-4"
+             style="color:var(--text-muted);">
+          <i class="bi bi-cpu" style="font-size:2rem;opacity:.3;margin-bottom:.75rem;"></i>
+          <div style="font-size:.82rem;">
+            {% if not records[0].paragraph is defined or not records %}
+            Aucun IOC enrichi dans cette famille.
+            {% else %}
+            Clé Groq non configurée — ajoutez-la dans
+            <a href="{{ url_for('auth.api_keys') }}" style="color:var(--accent);">Paramètres</a>
+            pour générer la synthèse.
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Mini-graph -->
+  <div class="col-lg-5">
+    <div class="card h-100">
+      <div class="card-header d-flex align-items-center gap-2">
+        <i class="bi bi-share text-info" style="font-size:.85rem;"></i>
+        <span class="small fw-semibold" style="text-transform:uppercase;letter-spacing:.5px;font-size:.7rem;">
+          Graphe · {{ stats.total }} nœuds
+        </span>
+        <span style="font-size:.65rem;color:var(--text-muted);margin-left:auto;">
+          IPs ↔ domaines ↔ hashes
+        </span>
+      </div>
+      <div class="card-body p-2">
+        <div id="family-graph"></div>
+      </div>
+    </div>
+  </div>
+
 </div>
+{% endif %}
+
+<!-- IOC list -->
+<div class="card">
+  <div class="card-header d-flex align-items-center flex-wrap gap-2">
+    <span class="small fw-semibold" style="text-transform:uppercase;letter-spacing:.5px;font-size:.7rem;">
+      IOCs de cette famille
+    </span>
+
+    <!-- Sort bar -->
+    <div class="d-flex align-items-center gap-1 ms-2">
+      <span style="font-size:.72rem;color:var(--text-muted);">Tri ·</span>
+      <a href="{{ url_for('ioc.pivot_family', family=family, sort='score') }}"
+         class="sort-btn {% if sort == 'score' %}active{% endif %}">
+        Score {% if sort == 'score' %}<i class="bi bi-arrow-down" style="font-size:.6rem;"></i>{% endif %}
+      </a>
+      <a href="{{ url_for('ioc.pivot_family', family=family, sort='date') }}"
+         class="sort-btn {% if sort == 'date' %}active{% endif %}">Date</a>
+      <a href="{{ url_for('ioc.pivot_family', family=family, sort='type') }}"
+         class="sort-btn {% if sort == 'type' %}active{% endif %}">Type</a>
+    </div>
+
+    <!-- Export -->
+    {% if current_user.is_authenticated and current_user.is_approved %}
+    <a href="{{ url_for('ioc.export_excel', family=family) }}"
+       class="btn btn-outline-secondary btn-sm ms-auto" style="font-size:.75rem;">
+      <i class="bi bi-file-earmark-spreadsheet me-1"></i>Excel
+    </a>
+    {% endif %}
+  </div>
+
+  <div class="card-body p-2">
+    {% if records %}
+    <div class="d-flex flex-column gap-1 p-1">
+      {% for r in records %}
+        {%- set score = [r.threat_score or 0, 100] | min -%}
+        {%- if score > 30 -%}{%- set ring_color = '#e84040' -%}{%- set row_cls = 'mal' -%}
+        {%- elif score > 0 -%}{%- set ring_color = '#e8971a' -%}{%- set row_cls = 'susp' -%}
+        {%- else -%}{%- set ring_color = '#23a85c' -%}{%- set row_cls = 'ok' -%}{%- endif -%}
+        {%- set tlp = r.tlp or 'WHITE' -%}
+        {%- if tlp == 'RED' -%}{%- set tlp_cls = 'tlp-red' -%}
+        {%- elif tlp == 'AMBER' -%}{%- set tlp_cls = 'tlp-amber' -%}
+        {%- elif tlp == 'GREEN' -%}{%- set tlp_cls = 'tlp-green' -%}
+        {%- else -%}{%- set tlp_cls = 'tlp-white' -%}{%- endif -%}
+
+      <a href="{{ url_for('ioc.detail', value=r.value) }}"
+         class="ioc-row {{ row_cls }}">
+
+        <!-- Score ring -->
+        <div class="score-ring flex-shrink-0"
+             style="--pct:{{ score }};--ring-color:{{ ring_color }};width:40px;height:40px;">
+          <div style="position:absolute;width:28px;height:28px;border-radius:50%;background:var(--bg-card);"></div>
+          <span class="score-ring-label" style="font-size:9px;">{{ score }}</span>
+        </div>
+
+        <!-- IOC value + badges -->
+        <div class="flex-grow-1 min-width-0">
+          <div class="d-flex align-items-center gap-1 flex-wrap mb-1">
+            <span class="badge badge-{{ r.ioc_type }}" style="font-size:.58rem;">{{ r.ioc_type.upper() }}</span>
+            {% if score > 30 %}
+            <span class="verdict-mal" style="font-size:.67rem;padding:.12rem .5rem;">
+              <i class="bi bi-exclamation-triangle me-1"></i>malv.
+            </span>
+            {% elif score > 0 %}
+            <span style="background:rgba(232,151,26,.13);color:#f5b43a;border:1px solid rgba(232,151,26,.28);
+                         border-radius:20px;padding:.1rem .5rem;font-size:.67rem;font-weight:600;">
+              <i class="bi bi-exclamation-circle me-1"></i>susp.
+            </span>
+            {% else %}
+            <span class="verdict-ok" style="font-size:.67rem;padding:.12rem .5rem;">
+              <i class="bi bi-shield-check me-1"></i>ok
+            </span>
+            {% endif %}
+            <span class="tlp-badge {{ tlp_cls }}" style="font-size:.58rem;">TLP:{{ tlp }}</span>
+            {% if r.malware_family %}
+            <span style="font-size:.65rem;color:var(--warning);background:rgba(232,151,26,.1);
+                         border-radius:4px;padding:.05rem .35rem;">{{ r.malware_family }}</span>
+            {% endif %}
+          </div>
+          <div class="ioc-value"
+               style="font-size:.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;
+                      white-space:nowrap;color:var(--text-primary);"
+               title="{{ r.value }}">{{ r.value }}</div>
+        </div>
+
+        <!-- Tags (desktop) -->
+        <div class="d-none d-md-flex flex-wrap gap-1 flex-shrink-0" style="max-width:140px;">
+          {% for tag in r.get_tags()[:3] %}
+          <span style="font-size:.62rem;color:var(--text-muted);background:var(--bg-elevated);
+                       border-radius:3px;padding:.06rem .32rem;">{{ tag }}</span>
+          {% endfor %}
+        </div>
+
+        <!-- Time -->
+        <div style="font-size:.69rem;color:var(--text-muted);white-space:nowrap;flex-shrink:0;">
+          {% if r.age_days == 0 %}aujourd'hui
+          {% elif r.age_days == 1 %}hier
+          {% else %}il y a {{ r.age_days }}j
+          {% endif %}
+        </div>
+
+        <!-- Arrow -->
+        <i class="bi bi-chevron-right flex-shrink-0"
+           style="font-size:.7rem;color:var(--text-muted);opacity:.5;"></i>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center py-5" style="color:var(--text-muted);">
+      <i class="bi bi-diagram-3" style="font-size:2.5rem;display:block;margin-bottom:1rem;opacity:.3;"></i>
+      Aucun IOC associé à la famille <strong>{{ family }}</strong>.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+{% if records %}
+<script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/dist/vis-network.min.js"></script>
+<script>
+(function () {
+  var nodes = new vis.DataSet([
+    {id: 'fam', label: {{ family | tojson }},
+     shape: 'diamond', size: 24,
+     color: {background: '#6a3f00', border: '#e8971a', highlight: {background:'#7a4800', border:'#ffb030'}},
+     font: {color: '#f5b43a', size: 13, bold: true}},
+    {% if stats.ip > 0 %}
+    {id: 'h-ip', label: 'IPs ({{ stats.ip }})', shape: 'hexagon', size: 20,
+     color: {background:'#0f2a5e', border:'#1a4fa8'},
+     font: {color:'#7aa4f5', size: 11}},
+    {% endif %}
+    {% if stats.domain > 0 %}
+    {id: 'h-dom', label: 'Domaines ({{ stats.domain }})', shape: 'hexagon', size: 20,
+     color: {background:'#2a0d55', border:'#5a2090'},
+     font: {color:'#b080f0', size: 11}},
+    {% endif %}
+    {% if stats.hash > 0 %}
+    {id: 'h-hash', label: 'Hashes ({{ stats.hash }})', shape: 'hexagon', size: 20,
+     color: {background:'#3a2200', border:'#7a4a00'},
+     font: {color:'#d4870a', size: 11}},
+    {% endif %}
+    {% for r in records[:40] %}
+    {%- set s = r.threat_score or 0 -%}
+    {%- if s > 30 -%}{%- set nb='#5a0e0e' -%}{%- set eb='#e84040' -%}
+    {%- elif s > 0 -%}{%- set nb='#4a2c00' -%}{%- set eb='#e8971a' -%}
+    {%- else -%}{%- set nb='#0a3020' -%}{%- set eb='#23a85c' -%}{%- endif -%}
+    {id: 'i{{ loop.index }}',
+     label: '{{ r.value[:18] | e }}{% if r.value | length > 18 %}…{% endif %}',
+     shape: 'dot', size: 7,
+     color: {background: '{{ nb }}', border: '{{ eb }}'},
+     font: {color: '#7a88ae', size: 9},
+     title: '{{ r.value | e }} (score {{ s }})'},
+    {% endfor %}
+  ]);
+
+  var edges = new vis.DataSet([
+    {% if stats.ip > 0 %}
+    {from:'fam', to:'h-ip',   color:{color:'#2a3455'}, width:2},
+    {% endif %}
+    {% if stats.domain > 0 %}
+    {from:'fam', to:'h-dom',  color:{color:'#2a3455'}, width:2},
+    {% endif %}
+    {% if stats.hash > 0 %}
+    {from:'fam', to:'h-hash', color:{color:'#2a3455'}, width:2},
+    {% endif %}
+    {% for r in records[:40] %}
+    {%- if r.ioc_type == 'ip' -%}{%- set hub = 'h-ip' -%}
+    {%- elif r.ioc_type == 'domain' -%}{%- set hub = 'h-dom' -%}
+    {%- else -%}{%- set hub = 'h-hash' -%}{%- endif -%}
+    {from: 'i{{ loop.index }}', to: '{{ hub }}', color:{color:'#1c2438', opacity:0.5}},
+    {% endfor %}
+  ]);
+
+  var container = document.getElementById('family-graph');
+  new vis.Network(container, {nodes: nodes, edges: edges}, {
+    physics: {
+      barnesHut: {gravitationalConstant: -5000, centralGravity: 0.4, springLength: 90},
+    },
+    nodes: {borderWidth: 1.5},
+    edges: {smooth: {type: 'continuous'}, arrows: {to: {enabled: false}}},
+    interaction: {hover: true, tooltipDelay: 80, navigationButtons: false, zoomView: true},
+  });
+})();
+</script>
 {% endif %}
 {% endblock %}

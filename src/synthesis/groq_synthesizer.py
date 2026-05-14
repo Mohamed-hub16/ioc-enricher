@@ -210,6 +210,48 @@ def _format_context(results: list[EnrichmentResult], is_malicious: bool) -> str:
     return "\n".join(lines)
 
 
+_SYSTEM_FAMILY = """Tu es un analyste CERT/SOC sénior spécialisé en threat intelligence. \
+Tu reçois des données agrégées sur une famille de malware : nombre et types d'IOCs, scores de menace, \
+et des extraits des analyses individuelles déjà produites.
+
+Rédige UN SEUL paragraphe de synthèse analytique en français (6 à 10 phrases). \
+Ne commence JAMAIS par le nom de la famille directement ou par "La famille de malware X est...". \
+Commence directement par un élément d'infrastructure ou de comportement : \
+"Opérant principalement via...", "Caractérisée par une infrastructure...", "Cette campagne...".
+
+Couvre si les données le permettent :
+1. Infrastructure commune (types d'hébergement, ASN récurrents, bulletproof hosting)
+2. TTPs et modus operandi observés dans les IOCs
+3. Patterns d'infrastructure (nommage de domaines, rotation IP, imphash commun)
+4. Cadence et timeline d'activité
+5. Liens avec d'autres familles ou outils si mentionnés dans les analyses
+
+INTERDICTIONS : N'invente pas d'informations. Ne liste pas les IOCs un par un.
+Style : analytique, dense, vocabulaire threat intelligence. Un seul paragraphe fluide, sans titres."""
+
+
+def synthesize_family(family: str, context: str, groq_key: str = "") -> str | None:
+    api_key = groq_key or os.getenv("GROQ_API_KEY")
+    if not api_key:
+        return None
+    try:
+        from groq import Groq
+        client = Groq(api_key=api_key)
+        response = client.chat.completions.create(
+            model=_GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": _SYSTEM_FAMILY},
+                {"role": "user", "content": f"Famille de malware : {family}\n\n{context}"},
+            ],
+            temperature=0.3,
+            max_tokens=600,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as exc:
+        print(f"    [!] Groq family synthesis error : {exc}")
+        return None
+
+
 def synthesize(results: list[EnrichmentResult], threat_score: int = 0, groq_key: str = "") -> str | None:
     api_key = groq_key or os.getenv("GROQ_API_KEY")
     if not api_key:

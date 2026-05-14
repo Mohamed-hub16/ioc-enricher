@@ -1,193 +1,489 @@
 {% extends "base.html" %}
-{% block title %}Historique IOCs — IOC Enricher{% endblock %}
+{% block title %}Historique — IOC Enricher{% endblock %}
 
 {% block content %}
-<div class="row mb-3 align-items-center">
-  <div class="col">
-    <h5 class="mb-3 text-secondary">
-      <i class="bi bi-database me-2"></i>Base de connaissance IOCs
-    </h5>
-    <form method="get" action="{{ url_for('ioc.index') }}" class="d-flex gap-2">
-      <input type="hidden" name="filter" value="{{ filt }}">
-      <input type="text" name="q" class="form-control ioc-value"
-             placeholder="Rechercher une IP, domaine, hash..."
-             value="{{ q }}">
-      <button type="submit" class="btn btn-outline-info px-3">
-        <i class="bi bi-search"></i>
-      </button>
-      {% if q %}
-      <a href="{{ url_for('ioc.index', filter=filt) }}" class="btn btn-outline-secondary">
-        <i class="bi bi-x-lg"></i>
+<style>
+  /* ── Sidebar sections ─────────────────────────────────── */
+  .sidebar-section { margin-bottom: 1.4rem; }
+  .sidebar-section-title {
+    font-size: .63rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .8px;
+    color: var(--text-muted);
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: .45rem;
+  }
+  .fp { /* filter pill */
+    display: flex; align-items: center; justify-content: space-between;
+    padding: .32rem .6rem; border-radius: 6px;
+    font-size: .79rem; font-weight: 500;
+    color: var(--text-secondary); text-decoration: none;
+    transition: background .11s, color .11s;
+    gap: .5rem;
+  }
+  .fp:hover  { background: var(--bg-hover); color: var(--text-primary); }
+  .fp.active { background: rgba(201,169,110,.12); color: var(--accent); }
+  .fp .fc { /* count badge */
+    font-size: .65rem; color: var(--text-muted);
+    background: var(--bg-elevated); border-radius: 9px;
+    padding: .05rem .42rem; font-family: 'JetBrains Mono', monospace;
+    flex-shrink: 0;
+  }
+  .fp.active .fc { background: rgba(201,169,110,.2); color: var(--accent); }
+  .fp .dot {
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  }
+
+  /* ── Content header ───────────────────────────────────── */
+  .content-header {
+    display: flex; align-items: center; flex-wrap: wrap; gap: .6rem;
+    margin-bottom: .85rem;
+  }
+  .sort-bar {
+    display: flex; align-items: center; gap: .25rem;
+    font-size: .75rem; color: var(--text-muted);
+  }
+  .sort-btn {
+    background: none; border: none; padding: .2rem .5rem;
+    border-radius: 5px; font-size: .75rem; font-weight: 500;
+    color: var(--text-secondary); cursor: pointer;
+    transition: background .11s, color .11s;
+    text-decoration: none;
+  }
+  .sort-btn:hover { background: var(--bg-elevated); color: var(--text-primary); }
+  .sort-btn.active { background: rgba(201,169,110,.12); color: var(--accent); }
+
+  /* ── Cards grid ───────────────────────────────────────── */
+  .ioc-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(275px, 1fr));
+    gap: .7rem;
+  }
+  .ioc-list-view { display: flex; flex-direction: column; gap: .35rem; }
+  .ioc-list-view .ioc-card { flex-direction: row; }
+  .ioc-list-view .ioc-card-body {
+    display: flex; align-items: center; flex-wrap: wrap;
+    gap: .6rem; padding: .55rem 1rem; flex: 1; min-width: 0;
+  }
+  .ioc-list-view .ioc-card-body .card-row-geo,
+  .ioc-list-view .ioc-card-body .card-row-tags,
+  .ioc-list-view .ioc-card-body .card-row-family { display: none; }
+  .ioc-list-view .ioc-card-footer {
+    border-top: none; border-left: 1px solid var(--border-subtle);
+    border-radius: 0 10px 10px 0; white-space: nowrap;
+    min-width: 110px; justify-content: flex-end;
+  }
+
+  /* ── Card internals ───────────────────────────────────── */
+  .ioc-card.susp { border-left: 3px solid var(--warning); }
+  .verdict-susp {
+    background: rgba(232,151,26,.13); color: #f5b43a;
+    border: 1px solid rgba(232,151,26,.28);
+    border-radius: 20px; padding: .18rem .6rem;
+    font-size: .7rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .3px;
+  }
+  .tag-pill {
+    font-size: .63rem; color: var(--text-muted);
+    background: var(--bg-elevated); border-radius: 3px;
+    padding: .08rem .35rem;
+  }
+  .vt-chip {
+    font-size: .68rem; color: var(--text-muted); white-space: nowrap;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .vt-chip.mal { color: #f07070; }
+</style>
+
+<div class="d-flex gap-3 align-items-start">
+
+  <!-- ═══════════════════ SIDEBAR ═══════════════════ -->
+  <aside class="filter-sidebar d-none d-lg-block" style="width:210px;flex-shrink:0;">
+
+    <!-- Statut -->
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Statut</div>
+      <a href="{{ url_for('ioc.index', q=q, filter='all', sort=sort, type=type_filter, family=family_filter, tlp=tlp_filter, tag=tag_filter) }}"
+         class="fp {% if filt == 'all' %}active{% endif %}">
+        <span class="d-flex align-items-center gap-2">
+          <span class="dot" style="background:var(--text-muted);"></span>Tous
+        </span>
+        <span class="fc">{{ counts.all }}</span>
+      </a>
+      <a href="{{ url_for('ioc.index', q=q, filter='malicious', sort=sort, type=type_filter, family=family_filter, tlp=tlp_filter, tag=tag_filter) }}"
+         class="fp {% if filt == 'malicious' %}active{% endif %}">
+        <span class="d-flex align-items-center gap-2">
+          <span class="dot" style="background:var(--danger);"></span>Malveillants
+        </span>
+        <span class="fc">{{ counts.malicious }}</span>
+      </a>
+      <a href="{{ url_for('ioc.index', q=q, filter='suspect', sort=sort, type=type_filter, family=family_filter, tlp=tlp_filter, tag=tag_filter) }}"
+         class="fp {% if filt == 'suspect' %}active{% endif %}">
+        <span class="d-flex align-items-center gap-2">
+          <span class="dot" style="background:var(--warning);"></span>Suspects
+        </span>
+        <span class="fc">{{ counts.suspect }}</span>
+      </a>
+      <a href="{{ url_for('ioc.index', q=q, filter='legitimate', sort=sort, type=type_filter, family=family_filter, tlp=tlp_filter, tag=tag_filter) }}"
+         class="fp {% if filt == 'legitimate' %}active{% endif %}">
+        <span class="d-flex align-items-center gap-2">
+          <span class="dot" style="background:var(--success);"></span>Légitimes
+        </span>
+        <span class="fc">{{ counts.legitimate }}</span>
+      </a>
+    </div>
+
+    <!-- Type -->
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Type</div>
+      <a href="{{ url_for('ioc.index', q=q, filter=filt, sort=sort, type='ip', family=family_filter, tlp=tlp_filter, tag=tag_filter) }}"
+         class="fp {% if type_filter == 'ip' %}active{% endif %}">
+        <span class="d-flex align-items-center gap-1">
+          <span class="badge badge-ip" style="font-size:.58rem;padding:.12rem .38rem;">IP</span>
+          Adresses IP
+        </span>
+        <span class="fc">{{ counts.ip }}</span>
+      </a>
+      <a href="{{ url_for('ioc.index', q=q, filter=filt, sort=sort, type='domain', family=family_filter, tlp=tlp_filter, tag=tag_filter) }}"
+         class="fp {% if type_filter == 'domain' %}active{% endif %}">
+        <span class="d-flex align-items-center gap-1">
+          <span class="badge badge-domain" style="font-size:.58rem;padding:.12rem .38rem;">DOM</span>
+          Domaines
+        </span>
+        <span class="fc">{{ counts.domain }}</span>
+      </a>
+      <a href="{{ url_for('ioc.index', q=q, filter=filt, sort=sort, type='hash', family=family_filter, tlp=tlp_filter, tag=tag_filter) }}"
+         class="fp {% if type_filter == 'hash' %}active{% endif %}">
+        <span class="d-flex align-items-center gap-1">
+          <span class="badge badge-hash" style="font-size:.58rem;padding:.12rem .38rem;">HASH</span>
+          Hashes
+        </span>
+        <span class="fc">{{ counts.hash }}</span>
+      </a>
+      {% if type_filter != 'all' %}
+      <a href="{{ url_for('ioc.index', q=q, filter=filt, sort=sort, type='all', family=family_filter, tlp=tlp_filter, tag=tag_filter) }}"
+         class="fp" style="font-size:.72rem;color:var(--text-muted);">
+        <span><i class="bi bi-x me-1"></i>Tous les types</span>
       </a>
       {% endif %}
-    </form>
-  </div>
-  {% if current_user.is_authenticated and current_user.is_approved %}
-  <div class="col-auto mt-3 mt-md-0 d-flex gap-2" style="margin-top: 1.9rem !important;">
-    <a href="{{ url_for('ioc.enrich') }}" class="btn btn-info">
-      <i class="bi bi-plus-circle me-1"></i>Enrichir un IOC
-    </a>
-    <a href="{{ url_for('ioc.export_excel') }}" class="btn btn-outline-success">
-      <i class="bi bi-file-earmark-spreadsheet me-1"></i>Exporter Excel
-    </a>
-  </div>
-  {% endif %}
-</div>
+    </div>
 
-<!-- Filter tabs + sort -->
-<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
-  <div class="d-flex gap-2">
-    <a href="{{ url_for('ioc.index', q=q, filter='all', sort=sort) }}"
-       class="btn btn-sm {% if filt == 'all' %}btn-secondary{% else %}btn-outline-secondary{% endif %}">
-      <i class="bi bi-list-ul me-1"></i>Tous
-      <span class="badge bg-dark ms-1">{{ counts.all }}</span>
-    </a>
-    <a href="{{ url_for('ioc.index', q=q, filter='malicious', sort=sort) }}"
-       class="btn btn-sm {% if filt == 'malicious' %}btn-danger{% else %}btn-outline-danger{% endif %}">
-      <i class="bi bi-exclamation-triangle me-1"></i>Malveillants
-      <span class="badge {% if filt == 'malicious' %}bg-dark{% else %}bg-danger{% endif %} ms-1">{{ counts.malicious }}</span>
-    </a>
-    <a href="{{ url_for('ioc.index', q=q, filter='legitimate', sort=sort) }}"
-       class="btn btn-sm {% if filt == 'legitimate' %}btn-success{% else %}btn-outline-success{% endif %}">
-      <i class="bi bi-shield-check me-1"></i>Légitimes
-      <span class="badge {% if filt == 'legitimate' %}bg-dark{% else %}bg-success{% endif %} ms-1">{{ counts.legitimate }}</span>
-    </a>
-  </div>
-  <div class="d-flex align-items-center gap-1">
-    <span class="text-muted small me-1"><i class="bi bi-sort-down me-1"></i>Trier :</span>
-    <a href="{{ url_for('ioc.index', q=q, filter=filt, sort='date') }}"
-       class="btn btn-sm {% if sort == 'date' %}btn-outline-info active{% else %}btn-outline-secondary{% endif %}">
-      <i class="bi bi-calendar3 me-1"></i>Date
-    </a>
-    <a href="{{ url_for('ioc.index', q=q, filter=filt, sort='score') }}"
-       class="btn btn-sm {% if sort == 'score' %}btn-outline-info active{% else %}btn-outline-secondary{% endif %}">
-      <i class="bi bi-speedometer2 me-1"></i>Score
-    </a>
-    <a href="{{ url_for('ioc.index', q=q, filter=filt, sort='views') }}"
-       class="btn btn-sm {% if sort == 'views' %}btn-outline-info active{% else %}btn-outline-secondary{% endif %}">
-      <i class="bi bi-eye me-1"></i>Vues
-    </a>
-  </div>
-</div>
+    <!-- Familles · top -->
+    {% if families_top %}
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">
+        Familles
+        <span style="font-size:.62rem;font-weight:400;color:var(--text-muted);">top</span>
+      </div>
+      {% for fam, n in families_top %}
+      <a href="{{ url_for('ioc.index', q=q, filter=filt, sort=sort, type=type_filter, family=fam, tlp=tlp_filter, tag=tag_filter) }}"
+         class="fp {% if family_filter == fam %}active{% endif %}">
+        <span class="d-flex align-items-center gap-2">
+          <span class="dot" style="background:var(--warning);"></span>{{ fam }}
+        </span>
+        <span class="fc">{{ n }}</span>
+      </a>
+      {% endfor %}
+      {% if families_other_count > 0 %}
+      <div class="fp" style="cursor:default;font-size:.72rem;color:var(--text-muted);">
+        + {{ families_other_count }} autres famille{{ 's' if families_other_count > 1 }}
+      </div>
+      {% endif %}
+      {% if family_filter %}
+      <a href="{{ url_for('ioc.index', q=q, filter=filt, sort=sort, type=type_filter, family='', tlp=tlp_filter, tag=tag_filter) }}"
+         class="fp" style="font-size:.72rem;color:var(--text-muted);">
+        <span><i class="bi bi-x me-1"></i>Effacer famille</span>
+      </a>
+      {% endif %}
+    </div>
+    {% endif %}
 
-{% if records %}
-<div class="card">
-  <div class="card-body p-0">
-    <table class="table table-hover align-middle mb-0" style="table-layout: fixed; width: 100%;">
-      <thead style="background-color: #1c2128; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px;">
-        <tr>
-          <th class="ps-3" style="width: 26%;">IOC</th>
-          <th style="width: 72px;">Type</th>
-          <th style="width: 115px;">Score</th>
-          <th>Sources</th>
-          <th style="width: 120px;">Enrichi par</th>
-          <th style="width: 110px;">Date</th>
-          <th style="width: 55px;" title="Nombre de consultations de la fiche">Vues</th>
-          <th style="width: 48px;"></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in records %}
-        <tr>
-          <td class="ps-3" style="overflow: hidden; max-width: 0;">
-            <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-              <a href="{{ url_for('ioc.detail', value=r.value) }}"
-                 class="ioc-value text-decoration-none text-light fw-medium"
-                 title="{{ r.value }}">
-                {{ r.value }}
-              </a>
-              {% if r.is_stale %}
-              <span class="badge bg-secondary ms-1 fw-normal" title="Données de plus de 7 jours">
-                stale
-              </span>
-              {% endif %}
-            </div>
-          </td>
-          <td>
-            <span class="badge badge-{{ r.ioc_type }}">{{ r.ioc_type }}</span>
-          </td>
-          <td style="min-width: 110px;">
-            {% set s = [r.threat_score or 0, 100] | min %}
-            {% if s == 0 %}
-              {% set sc = '#2ea043' %}
-            {% elif s <= 30 %}
-              {% set sc = '#d29922' %}
-            {% elif s <= 70 %}
-              {% set sc = '#fd7e14' %}
+    <!-- TLP -->
+    {% if tlp_counts %}
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">TLP</div>
+      {% for level, cls in [('RED','tlp-red'),('AMBER','tlp-amber'),('GREEN','tlp-green'),('WHITE','tlp-white')] %}
+      {% if tlp_counts.get(level, 0) > 0 %}
+      <a href="{{ url_for('ioc.index', q=q, filter=filt, sort=sort, type=type_filter, family=family_filter, tlp=level, tag=tag_filter) }}"
+         class="fp {% if tlp_filter == level %}active{% endif %}">
+        <span class="d-flex align-items-center gap-2">
+          <span class="tlp-badge {{ cls }}" style="font-size:.58rem;padding:.1rem .4rem;">TLP:{{ level }}</span>
+        </span>
+        <span class="fc">{{ tlp_counts.get(level, 0) }}</span>
+      </a>
+      {% endif %}
+      {% endfor %}
+      {% if tlp_filter %}
+      <a href="{{ url_for('ioc.index', q=q, filter=filt, sort=sort, type=type_filter, family=family_filter, tlp='', tag=tag_filter) }}"
+         class="fp" style="font-size:.72rem;color:var(--text-muted);">
+        <span><i class="bi bi-x me-1"></i>Effacer TLP</span>
+      </a>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Tags actifs -->
+    {% if tags_shown %}
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Tags actifs</div>
+      <div class="d-flex flex-wrap gap-1 px-1">
+        {% for tag, n in tags_shown %}
+        <a href="{{ url_for('ioc.index', q=q, filter=filt, sort=sort, type=type_filter, family=family_filter, tlp=tlp_filter, tag=tag) }}"
+           class="tag-pill text-decoration-none {% if tag_filter == tag %}active{% endif %}"
+           style="{% if tag_filter == tag %}background:rgba(201,169,110,.18);color:var(--accent);{% endif %}">
+          {{ tag }}
+        </a>
+        {% endfor %}
+        {% if tags_extra > 0 %}
+        <span class="tag-pill" style="color:var(--text-muted);">+{{ tags_extra }}</span>
+        {% endif %}
+      </div>
+      {% if tag_filter %}
+      <a href="{{ url_for('ioc.index', q=q, filter=filt, sort=sort, type=type_filter, family=family_filter, tlp=tlp_filter, tag='') }}"
+         class="fp mt-1" style="font-size:.72rem;color:var(--text-muted);">
+        <span><i class="bi bi-x me-1"></i>Effacer tag</span>
+      </a>
+      {% endif %}
+    </div>
+    {% endif %}
+
+  </aside>
+
+  <!-- ═══════════════════ MAIN ═══════════════════ -->
+  <div class="flex-grow-1" style="min-width:0;">
+
+    <!-- Content header -->
+    <div class="content-header">
+      <!-- Title + count -->
+      <div class="flex-grow-1">
+        <h5 class="mb-0" style="font-size:.95rem;font-weight:700;">Historique</h5>
+        <div style="font-size:.72rem;color:var(--text-muted);margin-top:.15rem;">
+          {{ counts.all }} IOC{{ 's' if counts.all != 1 }} ·
+          <span style="color:var(--danger);">{{ counts.malicious }} malveillant{{ 's' if counts.malicious != 1 }}</span>
+          {% if counts.suspect %} · <span style="color:var(--warning);">{{ counts.suspect }} suspect{{ 's' if counts.suspect != 1 }}</span>{% endif %}
+        </div>
+      </div>
+
+      <!-- Action buttons -->
+      {% if current_user.is_authenticated and current_user.is_approved %}
+      <a href="{{ url_for('ioc.export_excel') }}" class="btn btn-outline-secondary btn-sm"
+         title="Exporter Excel">
+        <i class="bi bi-file-earmark-spreadsheet me-1"></i>Excel
+      </a>
+      <a href="{{ url_for('ioc.export_markdown') }}" class="btn btn-outline-secondary btn-sm"
+         title="Exporter Markdown">
+        <i class="bi bi-markdown me-1"></i>Markdown
+      </a>
+      <a href="{{ url_for('ioc.enrich') }}" class="btn btn-primary btn-sm">
+        <i class="bi bi-plus-circle me-1"></i>Enrichir
+      </a>
+      {% endif %}
+    </div>
+
+    <!-- Toolbar: sort + view toggle -->
+    <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+      <div class="sort-bar">
+        <span style="color:var(--text-muted);margin-right:.2rem;">Tri ·</span>
+        <a href="{{ url_for('ioc.index', q=q, filter=filt, sort='score', type=type_filter, family=family_filter, tlp=tlp_filter, tag=tag_filter) }}"
+           class="sort-btn {% if sort == 'score' %}active{% endif %}">
+          Score {% if sort == 'score' %}<i class="bi bi-arrow-down" style="font-size:.65rem;"></i>{% endif %}
+        </a>
+        <a href="{{ url_for('ioc.index', q=q, filter=filt, sort='date', type=type_filter, family=family_filter, tlp=tlp_filter, tag=tag_filter) }}"
+           class="sort-btn {% if sort == 'date' %}active{% endif %}">Date</a>
+        <a href="{{ url_for('ioc.index', q=q, filter=filt, sort='views', type=type_filter, family=family_filter, tlp=tlp_filter, tag=tag_filter) }}"
+           class="sort-btn {% if sort == 'views' %}active{% endif %}">Vues</a>
+      </div>
+      <div class="d-flex align-items-center gap-1">
+        <span style="font-size:.72rem;color:var(--text-muted);margin-right:.3rem;">Vue :</span>
+        <button id="btn-cards" class="sort-btn active" onclick="setView('cards')" title="Vue cartes">
+          <i class="bi bi-grid-3x3-gap"></i> Cartes
+        </button>
+        <button id="btn-list" class="sort-btn" onclick="setView('list')" title="Vue liste">
+          <i class="bi bi-list-ul"></i> Liste
+        </button>
+      </div>
+    </div>
+
+    <!-- Mobile filters -->
+    <div class="d-flex d-lg-none flex-wrap gap-1 mb-3">
+      {% for t, label in [('all','Tous'),('ip','IP'),('domain','Dom.'),('hash','Hash')] %}
+      <a href="{{ url_for('ioc.index', q=q, filter=filt, sort=sort, type=t) }}"
+         class="btn btn-sm {% if type_filter == t %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+        {{ label }}
+      </a>
+      {% endfor %}
+      <div class="vr mx-1 d-none d-sm-block" style="opacity:.2;"></div>
+      {% for f, label in [('all','Tout'),('malicious','Malv.'),('suspect','Susp.'),('legitimate','Lég.')] %}
+      <a href="{{ url_for('ioc.index', q=q, filter=f, sort=sort, type=type_filter) }}"
+         class="btn btn-sm {% if filt == f %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+        {{ label }}
+      </a>
+      {% endfor %}
+    </div>
+
+    {% if records %}
+    <!-- Cards / List container -->
+    <div id="ioc-grid" class="ioc-cards-grid">
+      {% for r in records %}
+        {%- set score = [r.threat_score or 0, 100] | min -%}
+        {%- if score == 0 -%}
+          {%- set ring_color = '#23a85c' -%}
+        {%- elif score <= 30 -%}
+          {%- set ring_color = '#e8971a' -%}
+        {%- elif score <= 70 -%}
+          {%- set ring_color = '#e06020' -%}
+        {%- else -%}
+          {%- set ring_color = '#e84040' -%}
+        {%- endif -%}
+        {%- set tlp = r.tlp or 'WHITE' -%}
+        {%- if tlp == 'RED' -%}{%- set tlp_cls = 'tlp-red' -%}
+        {%- elif tlp == 'AMBER' -%}{%- set tlp_cls = 'tlp-amber' -%}
+        {%- elif tlp == 'GREEN' -%}{%- set tlp_cls = 'tlp-green' -%}
+        {%- else -%}{%- set tlp_cls = 'tlp-white' -%}{%- endif -%}
+        {%- set meta = r.card_meta -%}
+
+      <a href="{{ url_for('ioc.detail', value=r.value) }}"
+         class="ioc-card text-decoration-none {% if score > 30 %}mal{% elif score > 0 %}susp{% else %}ok{% endif %}">
+        <div class="ioc-card-body">
+
+          <!-- Row 1: type + verdict + TLP + score ring -->
+          <div class="d-flex align-items-center gap-1 mb-2">
+            <span class="badge badge-{{ r.ioc_type }}" style="font-size:.6rem;">{{ r.ioc_type.upper() }}</span>
+            {% if score > 30 %}
+            <span class="verdict-mal"><i class="bi bi-exclamation-triangle me-1"></i>malv.</span>
+            {% elif score > 0 %}
+            <span class="verdict-susp"><i class="bi bi-exclamation-circle me-1"></i>susp.</span>
             {% else %}
-              {% set sc = '#da3633' %}
+            <span class="verdict-ok"><i class="bi bi-shield-check me-1"></i>ok</span>
             {% endif %}
-            <div class="d-flex align-items-center gap-2">
-              <span class="fw-bold ioc-value small" style="color: {{ sc }}; min-width: 32px;">
-                {{ s }}
-              </span>
-              <div style="flex:1; background:#0d1117; border-radius:4px; height:6px; overflow:hidden;">
-                <div style="width:{{ [s,3]|max }}%; height:100%; background:{{ sc }}; border-radius:4px;"></div>
+            {% if r.is_stale %}
+            <span class="stale-badge ms-1"><i class="bi bi-clock-history me-1"></i>stale</span>
+            {% endif %}
+            <div class="ms-auto d-flex align-items-center gap-2">
+              <span class="tlp-badge {{ tlp_cls }}">TLP:{{ tlp }}</span>
+              <div class="score-ring" style="--pct:{{ score }};--ring-color:{{ ring_color }};">
+                <span class="score-ring-label">{{ score }}</span>
               </div>
             </div>
-          </td>
-          <td>
-            {% for res in r.get_results() %}
-              {% if not res['error'] %}
-              <span class="badge bg-dark border me-1" style="font-size: 0.75rem;">
-                {{ res['source'] }}
-              </span>
-              {% endif %}
-            {% endfor %}
-          </td>
-          <td class="text-muted small">{{ r.enriched_by or '—' }}</td>
-          <td class="text-muted small" style="white-space: nowrap;" title="{{ r.enriched_at.strftime('%Y-%m-%d %H:%M UTC') }}">
-            {% if r.age_days == 0 %}Aujourd'hui
-            {% elif r.age_days == 1 %}Hier
-            {% else %}il y a {{ r.age_days }}j
+          </div>
+
+          <!-- IOC value -->
+          <div class="ioc-value mb-1"
+               style="font-size:.83rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;
+                      white-space:nowrap;color:var(--text-primary);"
+               title="{{ r.value }}">{{ r.value }}</div>
+
+          <!-- Family -->
+          {% if r.malware_family %}
+          <div class="card-row-family mb-1" style="font-size:.7rem;color:var(--warning);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+            <i class="bi bi-diagram-3 me-1"></i>{{ r.malware_family }}
+          </div>
+          {% endif %}
+
+          <!-- Geo + ISP (IPs) -->
+          {% if meta.geo %}
+          <div class="card-row-geo" style="font-size:.7rem;color:var(--text-secondary);margin-bottom:.12rem;">
+            <i class="bi bi-geo-alt me-1" style="opacity:.6;"></i>{{ meta.geo }}
+          </div>
+          {% endif %}
+          {% if meta.isp %}
+          <div class="card-row-geo mb-1" style="font-size:.68rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ meta.isp }}</div>
+          {% endif %}
+
+          <!-- Sources + VT ratio -->
+          <div class="d-flex align-items-center justify-content-between mb-1">
+            <div class="d-flex flex-wrap gap-1">
+              {% for src in meta.sources %}
+              <span class="source-chip">{{ src }}</span>
+              {% endfor %}
+            </div>
+            {% if meta.vt_ratio %}
+            {%- set vt_parts = meta.vt_ratio.split('/') -%}
+            <span class="vt-chip {% if vt_parts[0] | int > 0 %}mal{% endif %} ms-1">
+              {{ meta.vt_ratio }} VT
+            </span>
             {% endif %}
-          </td>
-          <td class="text-muted small text-center">
-            <i class="bi bi-eye me-1"></i>{{ r.view_count or 0 }}
-          </td>
-          <td class="pe-3">
-            <a href="{{ url_for('ioc.detail', value=r.value) }}"
-               class="btn btn-sm btn-outline-secondary">
-              <i class="bi bi-eye"></i>
-            </a>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
+          </div>
 
-{% elif q %}
-<div class="text-center py-5 text-muted">
-  <i class="bi bi-search display-5 d-block mb-3"></i>
-  Aucun résultat pour <strong class="ioc-value">{{ q }}</strong>
-  {% if current_user.is_authenticated and current_user.is_approved %}
-  <div class="mt-3">
-    <a href="{{ url_for('ioc.enrich', ioc=q) }}" class="btn btn-info">
-      <i class="bi bi-plus-circle me-1"></i>Enrichir cet IOC
-    </a>
-  </div>
-  {% endif %}
-</div>
+          <!-- Tags -->
+          {% set tags = r.get_tags() %}
+          {% if tags %}
+          <div class="card-row-tags d-flex flex-wrap gap-1">
+            {% for tag in tags[:4] %}
+            <span class="tag-pill">{{ tag }}</span>
+            {% endfor %}
+            {% if tags | length > 4 %}
+            <span class="tag-pill" style="color:var(--text-muted);">+{{ tags|length - 4 }}</span>
+            {% endif %}
+          </div>
+          {% endif %}
 
-{% else %}
-<div class="text-center py-5 text-muted">
-  <i class="bi bi-shield display-5 d-block mb-3"></i>
-  Aucun IOC enrichi pour l'instant.
-  {% if current_user.is_authenticated and current_user.is_approved %}
-  <div class="mt-3">
-    <a href="{{ url_for('ioc.enrich') }}" class="btn btn-info">
-      <i class="bi bi-plus-circle me-1"></i>Enrichir le premier IOC
-    </a>
-  </div>
-  {% elif not current_user.is_authenticated %}
-  <div class="mt-3">
-    <a href="{{ url_for('auth.login') }}" class="btn btn-outline-info btn-sm">
-      Se connecter pour soumettre des IOCs
-    </a>
-  </div>
-  {% endif %}
-</div>
-{% endif %}
+        </div>
+
+        <!-- Card footer -->
+        <div class="ioc-card-footer d-flex align-items-center justify-content-between">
+          <span style="font-size:.7rem;color:var(--text-muted);">
+            <i class="bi bi-clock me-1" style="opacity:.5;"></i>
+            {% if r.age_days == 0 %}enrichi aujourd'hui
+            {% elif r.age_days == 1 %}enrichi hier
+            {% else %}enrichi il y a {{ r.age_days }}j
+            {% endif %}
+            {% if r.enriched_by %} · {{ r.enriched_by.split('@')[0] }}{% endif %}
+          </span>
+          <span style="font-size:.7rem;color:var(--text-muted);">
+            <i class="bi bi-eye me-1"></i>{{ r.view_count or 0 }} vues
+          </span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+
+    {% elif q %}
+    <div class="text-center py-5" style="color:var(--text-muted);">
+      <i class="bi bi-search" style="font-size:2.5rem;display:block;margin-bottom:1rem;opacity:.4;"></i>
+      Aucun résultat pour <strong class="ioc-value">{{ q }}</strong>
+      {% if current_user.is_authenticated and current_user.is_approved %}
+      <div class="mt-3">
+        <a href="{{ url_for('ioc.enrich', ioc=q) }}" class="btn btn-primary btn-sm">
+          <i class="bi bi-plus-circle me-1"></i>Enrichir cet IOC
+        </a>
+      </div>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="text-center py-5" style="color:var(--text-muted);">
+      <i class="bi bi-database" style="font-size:2.5rem;display:block;margin-bottom:1rem;opacity:.3;"></i>
+      <div style="font-size:.9rem;">Aucun IOC enrichi pour l'instant.</div>
+      {% if current_user.is_authenticated and current_user.is_approved %}
+      <div class="mt-3">
+        <a href="{{ url_for('ioc.enrich') }}" class="btn btn-primary btn-sm">
+          <i class="bi bi-plus-circle me-1"></i>Enrichir le premier IOC
+        </a>
+      </div>
+      {% elif not current_user.is_authenticated %}
+      <div class="mt-3">
+        <a href="{{ url_for('auth.login') }}" class="btn btn-outline-secondary btn-sm">
+          Se connecter pour soumettre des IOCs
+        </a>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+  </div><!-- /main -->
+</div><!-- /layout -->
+
+<script>
+  function setView(v) {
+    var g = document.getElementById('ioc-grid');
+    if (!g) return;
+    g.className = v === 'cards' ? 'ioc-cards-grid' : 'ioc-list-view';
+    document.getElementById('btn-cards').classList.toggle('active', v === 'cards');
+    document.getElementById('btn-list').classList.toggle('active',  v === 'list');
+    localStorage.setItem('ioc-view', v);
+  }
+  (function() {
+    var saved = localStorage.getItem('ioc-view') || 'cards';
+    if (saved === 'list') setView('list');
+  })();
+</script>
 {% endblock %}

@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from flask import Blueprint, render_template, redirect, url_for, flash, request, abort, send_file, jsonify
 from flask_login import login_required, current_user
+from sqlalchemy import func as sqlfunc
 
 logger = logging.getLogger(__name__)
 
@@ -251,7 +252,7 @@ def _compute_score_breakdown(raw_results: list[dict]) -> dict:
     return breakdown
 
 
-def _enrich_ioc(value: str, keys: dict | None = None) -> tuple[str, list[dict], str | None, int, dict, str | None]:
+def _enrich_ioc(value: str, keys: dict | None = None, generate_ai: bool = True) -> tuple[str, list[dict], str | None, int, dict, str | None]:
     """Return (ioc_type, raw, paragraph, threat_score, score_breakdown, malware_family)."""
     iocs, _ = parse_iocs([value])
     if not iocs:
@@ -284,7 +285,7 @@ def _enrich_ioc(value: str, keys: dict | None = None) -> tuple[str, list[dict], 
     score_breakdown = _compute_score_breakdown(raw)
 
     groq_key = (keys or {}).get("GROQ_API_KEY", "") or os.getenv("GROQ_API_KEY", "")
-    if groq_key:
+    if generate_ai and groq_key:
         synthesis = groq_synthesizer.synthesize_full(result_objects, threat_score, groq_key=groq_key)
         paragraph = synthesis["paragraph"]
         malware_family = synthesis["malware_family"]
@@ -297,17 +298,31 @@ def _enrich_ioc(value: str, keys: dict | None = None) -> tuple[str, list[dict], 
 
 @ioc_bp.route("/")
 def index():
-    q = request.args.get("q", "").strip()
-    filt = request.args.get("filter", "all")  # all | malicious | legitimate
-    sort = request.args.get("sort", "date")   # date | score | views
+    q             = request.args.get("q", "").strip()
+    filt          = request.args.get("filter", "all")   # all | malicious | suspect | legitimate
+    sort          = request.args.get("sort", "score")   # score | date | views
+    type_filter   = request.args.get("type", "all")     # all | ip | domain | hash
+    family_filter = request.args.get("family", "").strip()
+    tlp_filter    = request.args.get("tlp", "").strip().upper()
+    tag_filter    = request.args.get("tag", "").strip()
 
     query = IOCRecord.query
     if q:
         query = query.filter(IOCRecord.value.ilike(f"%{q}%"))
     if filt == "malicious":
-        query = query.filter(IOCRecord.threat_score > 0)
+        query = query.filter(IOCRecord.threat_score > 30)
+    elif filt == "suspect":
+        query = query.filter(IOCRecord.threat_score > 0, IOCRecord.threat_score <= 30)
     elif filt == "legitimate":
         query = query.filter(IOCRecord.threat_score == 0)
+    if type_filter in ("ip", "domain", "hash"):
+        query = query.filter(IOCRecord.ioc_type == type_filter)
+    if family_filter:
+        query = query.filter(IOCRecord.malware_family.ilike(f"%{family_filter}%"))
+    if tlp_filter in ("RED", "AMBER", "GREEN", "WHITE"):
+        query = query.filter(IOCRecord.tlp == tlp_filter)
+    if tag_filter:
+        query = query.filter(IOCRecord.tags_json.ilike(f'%"{tag_filter}"%'))
 
     if sort == "score":
         query = query.order_by(IOCRecord.threat_score.desc())
@@ -319,12 +334,56 @@ def index():
     records = query.limit(100).all()
 
     counts = {
-        "all": IOCRecord.query.count(),
-        "malicious": IOCRecord.query.filter(IOCRecord.threat_score > 0).count(),
-        "legitimate": IOCRecord.query.filter(IOCRecord.threat_score == 0).count(),
+        "all":       IOCRecord.query.count(),
+        "malicious": IOCRecord.query.filter(IOCRecord.threat_score > 30).count(),
+        "suspect":   IOCRecord.query.filter(
+                         IOCRecord.threat_score > 0, IOCRecord.threat_score <= 30).count(),
+        "legitimate":IOCRecord.query.filter(IOCRecord.threat_score == 0).count(),
+        "ip":        IOCRecord.query.filter_by(ioc_type="ip").count(),
+        "domain":    IOCRecord.query.filter_by(ioc_type="domain").count(),
+        "hash":      IOCRecord.query.filter_by(ioc_type="hash").count(),
     }
 
-    return render_template("index.html", records=records, q=q, filt=filt, sort=sort, counts=counts)
+    # Top families
+    family_rows = (
+        db.session.query(IOCRecord.malware_family,
+                         sqlfunc.count(IOCRecord.id).label("n"))
+        .filter(IOCRecord.malware_family.isnot(None), IOCRecord.malware_family != "")
+        .group_by(IOCRecord.malware_family)
+        .order_by(sqlfunc.count(IOCRecord.id).desc())
+        .all()
+    )
+    families_top         = family_rows[:4]
+    families_other_count = max(0, len(family_rows) - 4)
+
+    # TLP counts
+    tlp_raw = (
+        db.session.query(IOCRecord.tlp, sqlfunc.count(IOCRecord.id).label("n"))
+        .group_by(IOCRecord.tlp)
+        .all()
+    )
+    tlp_counts: dict[str, int] = {}
+    for row in tlp_raw:
+        key = (row.tlp or "WHITE").upper()
+        tlp_counts[key] = tlp_counts.get(key, 0) + (row.n or 0)
+
+    # Tag frequency (aggregated from JSON blobs)
+    tag_freq: dict[str, int] = {}
+    for r in IOCRecord.query.filter(IOCRecord.tags_json.isnot(None)).all():
+        for tag in r.get_tags():
+            tag_freq[tag] = tag_freq.get(tag, 0) + 1
+    sorted_tags = sorted(tag_freq.items(), key=lambda x: -x[1])
+    tags_shown  = sorted_tags[:7]
+    tags_extra  = max(0, len(sorted_tags) - 7)
+
+    return render_template(
+        "index.html",
+        records=records, q=q, filt=filt, sort=sort,
+        counts=counts, type_filter=type_filter,
+        family_filter=family_filter, tlp_filter=tlp_filter, tag_filter=tag_filter,
+        families_top=families_top, families_other_count=families_other_count,
+        tlp_counts=tlp_counts, tags_shown=tags_shown, tags_extra=tags_extra,
+    )
 
 
 @ioc_bp.route("/ioc/<path:value>")
@@ -353,8 +412,21 @@ def enrich():
             flash("Vous devez d'abord configurer vos clés API.", "warning")
             return redirect(url_for("auth.api_keys"))
 
-        force = request.form.get("force") == "1"
-        keys  = current_user.get_api_keys() if not current_user.is_admin else None
+        force       = request.form.get("force") == "1"
+        generate_ai = request.form.get("generate_ai") == "1"
+        keys        = current_user.get_api_keys() if not current_user.is_admin else None
+
+        default_tlp = request.form.get("default_tlp", "WHITE").upper()
+        if default_tlp not in ("RED", "AMBER", "GREEN", "WHITE"):
+            default_tlp = "WHITE"
+
+        import json as _json
+        try:
+            default_tags = _json.loads(request.form.get("default_tags_json", "[]"))
+            if not isinstance(default_tags, list):
+                default_tags = []
+        except Exception:
+            default_tags = []
 
         # ── Collect IOC values: file upload takes priority over text input ──
         uploaded = request.files.get("ioc_file")
@@ -403,7 +475,7 @@ def enrich():
                 return redirect(url_for("ioc.detail", value=value))
 
             try:
-                ioc_type, raw, paragraph, threat_score, score_breakdown, malware_family = _enrich_ioc(value, keys=keys)
+                ioc_type, raw, paragraph, threat_score, score_breakdown, malware_family = _enrich_ioc(value, keys=keys, generate_ai=generate_ai)
             except ValueError as exc:
                 flash(str(exc), "danger")
                 return render_template("enrich.html", prefill=value, max_batch=_MAX_BATCH)
@@ -437,9 +509,12 @@ def enrich():
                     paragraph=paragraph, threat_score=threat_score,
                     malware_family=malware_family,
                     verdict="malicious" if threat_score > 0 else "clean",
+                    tlp=default_tlp,
                 )
                 record.set_results(raw)
                 record.set_score_breakdown(score_breakdown)
+                if default_tags:
+                    record.set_tags(default_tags)
                 db.session.add(record)
 
             db.session.commit()
@@ -476,7 +551,7 @@ def enrich():
                 continue
 
             try:
-                ioc_type, raw_res, paragraph, threat_score, score_breakdown, malware_family = _enrich_ioc(value, keys=keys)
+                ioc_type, raw_res, paragraph, threat_score, score_breakdown, malware_family = _enrich_ioc(value, keys=keys, generate_ai=generate_ai)
             except Exception as exc:
                 logger.error("Bulk enrichment error for %r: %s", value, exc)
                 entry["message"] = "Erreur d'enrichissement"
@@ -507,9 +582,12 @@ def enrich():
                     paragraph=paragraph, threat_score=threat_score,
                     malware_family=malware_family,
                     verdict="malicious" if threat_score > 0 else "clean",
+                    tlp=default_tlp,
                 )
                 record.set_results(raw_res)
                 record.set_score_breakdown(score_breakdown)
+                if default_tags:
+                    record.set_tags(default_tags)
                 db.session.add(record)
                 entry["status"] = "new"
 
@@ -541,6 +619,7 @@ def delete_ioc(value: str):
 def export_excel():
     if not current_user.is_approved:
         abort(403)
+    family_filter = request.args.get("family", "").strip()
 
     import openpyxl
     from io import BytesIO
@@ -600,11 +679,10 @@ def export_excel():
             cell.alignment = HDR_ALIGN
             ws.column_dimensions[cell.column_letter].width = col_widths[i - 1]
 
-        records = (
-            IOCRecord.query.filter_by(ioc_type=ioc_type)
-            .order_by(IOCRecord.threat_score.desc(), IOCRecord.enriched_at.desc())
-            .all()
-        )
+        rq = IOCRecord.query.filter_by(ioc_type=ioc_type)
+        if family_filter:
+            rq = rq.filter(IOCRecord.malware_family.ilike(f"%{family_filter}%"))
+        records = rq.order_by(IOCRecord.threat_score.desc(), IOCRecord.enriched_at.desc()).all()
         for r in records:
             isp, abuse_score, vt_score = _extract_row_data(r.get_results(), ioc_type)
             if is_ip:
@@ -632,6 +710,51 @@ def export_excel():
         download_name=filename,
         as_attachment=True,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@ioc_bp.route("/export/markdown")
+@login_required
+def export_markdown():
+    if not current_user.is_approved:
+        abort(403)
+
+    from io import BytesIO
+
+    records = (
+        IOCRecord.query
+        .order_by(IOCRecord.threat_score.desc(), IOCRecord.enriched_at.desc())
+        .all()
+    )
+
+    lines = [
+        "# IOC Export",
+        "",
+        f"Exporté le {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC — {len(records)} IOCs",
+        "",
+        "| Valeur | Type | Score | Verdict | TLP | Famille | Enrichi le |",
+        "|--------|------|------:|---------|-----|---------|------------|",
+    ]
+    for r in records:
+        if (r.threat_score or 0) > 30:
+            verdict = "Malveillant"
+        elif (r.threat_score or 0) > 0:
+            verdict = "Suspect"
+        else:
+            verdict = "Légitime"
+        lines.append(
+            f"| `{r.value}` | {r.ioc_type} | {r.threat_score or 0} | {verdict} "
+            f"| TLP:{r.tlp or 'WHITE'} | {r.malware_family or '—'} "
+            f"| {r.enriched_at.strftime('%Y-%m-%d')} |"
+        )
+
+    content = "\n".join(lines) + "\n"
+    filename = f"ioc_export_{datetime.utcnow().strftime('%Y%m%d_%H%M')}.md"
+    return send_file(
+        BytesIO(content.encode("utf-8")),
+        download_name=filename,
+        as_attachment=True,
+        mimetype="text/markdown; charset=utf-8",
     )
 
 
@@ -665,16 +788,86 @@ def set_tags(value: str):
     return redirect(url_for("ioc.detail", value=value))
 
 
-@ioc_bp.route("/pivot/family/<path:family>")
-def pivot_family(family: str):
-    records = (
-        IOCRecord.query
-        .filter(IOCRecord.malware_family.ilike(f"%{family}%"))
-        .order_by(IOCRecord.threat_score.desc(), IOCRecord.enriched_at.desc())
-        .limit(200)
+def _rel_time(dt: datetime) -> str:
+    s = int((datetime.utcnow() - dt).total_seconds())
+    if s < 60:   return "à l'instant"
+    if s < 3600: return f"il y a {s // 60}min"
+    if s < 86400:return f"il y a {s // 3600}h"
+    d = s // 86400
+    if d < 30:   return f"il y a {d}j"
+    if d < 365:  return f"il y a {d // 30} mois"
+    return f"il y a {d // 365} an{'s' if d // 365 > 1 else ''}"
+
+
+@ioc_bp.route("/pivot/families")
+def pivot_families():
+    rows = (
+        db.session.query(
+            IOCRecord.malware_family,
+            sqlfunc.count(IOCRecord.id).label("total"),
+            sqlfunc.sum(sqlfunc.cast(IOCRecord.threat_score > 30, db.Integer)).label("malicious"),
+            sqlfunc.max(IOCRecord.enriched_at).label("last_seen"),
+        )
+        .filter(IOCRecord.malware_family.isnot(None), IOCRecord.malware_family != "")
+        .group_by(IOCRecord.malware_family)
+        .order_by(sqlfunc.count(IOCRecord.id).desc())
         .all()
     )
-    return render_template("pivot_family.html", family=family, records=records)
+    return render_template("pivot_families.html", families=rows,
+                           now_utc=datetime.utcnow())
+
+
+@ioc_bp.route("/pivot/family/<path:family>")
+def pivot_family(family: str):
+    sort = request.args.get("sort", "score")
+
+    q = IOCRecord.query.filter(IOCRecord.malware_family.ilike(f"%{family}%"))
+    if sort == "date":
+        q = q.order_by(IOCRecord.enriched_at.desc())
+    elif sort == "type":
+        q = q.order_by(IOCRecord.ioc_type, IOCRecord.threat_score.desc())
+    else:
+        q = q.order_by(IOCRecord.threat_score.desc(), IOCRecord.enriched_at.desc())
+
+    records = q.limit(200).all()
+
+    stats = {}
+    synthesis = None
+
+    if records:
+        stats = {
+            "total":     len(records),
+            "ip":        sum(1 for r in records if r.ioc_type == "ip"),
+            "domain":    sum(1 for r in records if r.ioc_type == "domain"),
+            "hash":      sum(1 for r in records if r.ioc_type == "hash"),
+            "malicious": sum(1 for r in records if (r.threat_score or 0) > 30),
+            "first_seen":     min(r.enriched_at for r in records),
+            "last_seen":      max(r.enriched_at for r in records),
+            "last_seen_rel":  _rel_time(max(r.enriched_at for r in records)),
+            "first_seen_fmt": min(r.enriched_at for r in records).strftime("%d %b %Y"),
+        }
+
+        groq_key = os.getenv("GROQ_API_KEY", "")
+        if groq_key:
+            ctx_lines = [
+                f"{stats['total']} IOCs "
+                f"({stats['ip']} IPs, {stats['domain']} domaines, {stats['hash']} hashes)",
+                f"Malveillants (score > 30) : {stats['malicious']}",
+                "",
+            ]
+            for r in records[:10]:
+                ctx_lines.append(
+                    f"[{r.ioc_type.upper()} score={r.threat_score or 0}] {r.value}"
+                )
+                if r.paragraph:
+                    ctx_lines.append(f"  → {r.paragraph[:400]}")
+                ctx_lines.append("")
+            synthesis = groq_synthesizer.synthesize_family(
+                family, "\n".join(ctx_lines), groq_key=groq_key
+            )
+
+    return render_template("pivot_family.html", family=family, records=records,
+                           stats=stats, sort=sort, synthesis=synthesis)
 
 
 @ioc_bp.route("/ioc/<path:value>/comment", methods=["POST"])

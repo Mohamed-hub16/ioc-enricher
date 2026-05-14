@@ -4,93 +4,525 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}IOC Enricher{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
   <style>
-    body { background-color: #0d1117; }
-    .navbar { background-color: #161b22 !important; border-bottom: 1px solid #30363d; }
-    .navbar-brand { font-family: monospace; letter-spacing: 1px; }
-    .card { background-color: #161b22; border-color: #30363d; }
-    .accordion-item { background-color: #161b22; border-color: #30363d; }
-    .accordion-button { background-color: #1c2128; color: #c9d1d9; }
-    .accordion-button:not(.collapsed) { background-color: #1c2128; color: #58a6ff; box-shadow: none; }
-    .accordion-button::after { filter: invert(1); }
-    .ioc-value { font-family: monospace; }
-    .badge-ip { background-color: #1d6fa4 !important; }
-    .badge-domain { background-color: #6741a8 !important; }
-    .badge-hash { background-color: #9a6700 !important; }
-    .paragraph-box {
-      background-color: #1a2332;
-      border-left: 4px solid #58a6ff;
-      border-radius: 0 6px 6px 0;
-      padding: 1.25rem 1.5rem;
-      line-height: 1.8;
-      font-size: 0.95rem;
+    :root {
+      --bg-base:       #12100e;
+      --bg-card:       #1c1915;
+      --bg-elevated:   #23201a;
+      --bg-hover:      #2c2820;
+      --bg-nav:        rgba(28, 25, 21, 0.97);
+      --border:        #3a342c;
+      --border-subtle: #2a2520;
+      --text-primary:  #ede5d8;
+      --text-secondary:#8a7e6e;
+      --text-muted:    #5e5448;
+      --accent:        #c9a96e;
+      --accent-dim:    #a8895a;
+      --danger:        #e84040;
+      --danger-dim:    #7a1a1a;
+      --success:       #23a85c;
+      --success-dim:   #0d4a28;
+      --warning:       #e8971a;
+      --warning-dim:   #6a3f00;
     }
-    .table { --bs-table-bg: transparent; }
-    footer { border-top: 1px solid #30363d; }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background-color: var(--bg-base);
+      color: var(--text-primary);
+      font-size: 0.875rem;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .ioc-value {
+      font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+    }
+
+    /* ── Navbar ─────────────────────────────────── */
+    .navbar {
+      background-color: var(--bg-nav) !important;
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(10px);
+    }
+    .navbar-brand {
+      font-weight: 700;
+      font-size: 0.95rem;
+      letter-spacing: -0.3px;
+      color: var(--text-primary) !important;
+    }
+    .nav-link {
+      color: var(--text-secondary) !important;
+      font-size: 0.82rem;
+      font-weight: 500;
+      padding: 0.35rem 0.7rem !important;
+      border-radius: 6px;
+      transition: color 0.15s, background-color 0.15s;
+    }
+    .nav-link:hover {
+      color: var(--text-primary) !important;
+      background-color: var(--bg-elevated);
+    }
+    .nav-link.active {
+      color: var(--accent) !important;
+      background-color: rgba(201, 169, 110, 0.1);
+    }
+    .dropdown-menu {
+      background-color: var(--bg-elevated);
+      border: 1px solid var(--border);
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+      border-radius: 8px;
+      padding: 0.4rem;
+    }
+    .dropdown-item {
+      color: var(--text-secondary);
+      font-size: 0.82rem;
+      padding: 0.4rem 0.75rem;
+      border-radius: 5px;
+    }
+    .dropdown-item:hover {
+      background-color: var(--bg-hover);
+      color: var(--text-primary);
+    }
+    .dropdown-item-text { padding: 0.4rem 0.75rem; }
+    .dropdown-divider { border-color: var(--border); margin: 0.25rem 0; }
+    .user-avatar {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.7rem; font-weight: 700; color: var(--accent);
+    }
+
+    /* ── Cards ──────────────────────────────────── */
+    .card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .card-header {
+      background-color: var(--bg-elevated);
+      border-bottom: 1px solid var(--border);
+      border-radius: 10px 10px 0 0 !important;
+      padding: 0.65rem 1rem;
+    }
+
+    /* ── Tables ─────────────────────────────────── */
+    .table { --bs-table-bg: transparent; color: var(--text-primary); }
+    .table-hover tbody tr:hover td { background-color: var(--bg-hover) !important; }
+    .table thead th {
+      color: var(--text-secondary);
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+      background-color: var(--bg-elevated);
+      border-color: var(--border);
+      padding: 0.6rem 0.75rem;
+    }
+    .table td { border-color: var(--border-subtle); }
+
+    /* ── Accordion ──────────────────────────────── */
+    .accordion-item { background-color: var(--bg-card); border-color: var(--border); }
+    .accordion-button {
+      background-color: var(--bg-elevated);
+      color: var(--text-primary);
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+    .accordion-button:not(.collapsed) {
+      background-color: var(--bg-elevated);
+      color: var(--accent);
+      box-shadow: none;
+    }
+    .accordion-button::after { filter: invert(0.6) brightness(1.2); }
+    .accordion-body { background-color: var(--bg-card); }
+
+    /* ── Nav Tabs ───────────────────────────────── */
+    .nav-tabs { border-bottom: 1px solid var(--border); }
+    .nav-tabs .nav-link {
+      color: var(--text-secondary) !important;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      border-radius: 0;
+      padding: 0.5rem 1rem !important;
+      font-size: 0.8rem;
+      font-weight: 500;
+    }
+    .nav-tabs .nav-link:hover {
+      color: var(--text-primary) !important;
+      background: none;
+      border-bottom-color: var(--border);
+    }
+    .nav-tabs .nav-link.active {
+      color: var(--accent) !important;
+      background: none;
+      border-bottom: 2px solid var(--accent);
+    }
+
+    /* ── Badges ─────────────────────────────────── */
+    .badge-ip     { background-color: #1a4fa8 !important; }
+    .badge-domain { background-color: #5a2090 !important; }
+    .badge-hash   { background-color: #7a4a00 !important; }
+
+    /* ── Forms ──────────────────────────────────── */
+    .form-control, .form-select {
+      background-color: var(--bg-elevated);
+      border-color: var(--border);
+      color: var(--text-primary);
+      font-size: 0.875rem;
+      border-radius: 7px;
+    }
+    .form-control:focus, .form-select:focus {
+      background-color: var(--bg-elevated);
+      border-color: var(--accent-dim);
+      color: var(--text-primary);
+      box-shadow: 0 0 0 2.5px rgba(201, 169, 110, 0.18);
+    }
+    .form-control::placeholder { color: var(--text-muted); }
+    .form-control-sm, .form-select-sm { font-size: 0.8rem; }
+
+    /* ── Buttons ────────────────────────────────── */
+    .btn { font-size: 0.82rem; font-weight: 500; border-radius: 7px; }
+    .btn-primary, .btn-info {
+      background-color: var(--accent); border-color: var(--accent); color: #fff;
+    }
+    .btn-primary:hover, .btn-info:hover {
+      background-color: var(--accent-dim); border-color: var(--accent-dim); color: #fff;
+    }
+    .btn-outline-info { color: var(--accent); border-color: var(--accent); }
+    .btn-outline-info:hover {
+      background-color: var(--accent); border-color: var(--accent); color: #fff;
+    }
+    .btn-outline-secondary { color: var(--text-secondary); border-color: var(--border); }
+    .btn-outline-secondary:hover {
+      background-color: var(--bg-elevated); border-color: var(--border); color: var(--text-primary);
+    }
+    .btn-outline-danger { color: var(--danger); border-color: var(--danger); }
+    .btn-outline-danger:hover { background-color: var(--danger); border-color: var(--danger); color: #fff; }
+    .btn-outline-success { color: var(--success); border-color: var(--success); }
+    .btn-outline-success:hover { background-color: var(--success); border-color: var(--success); color: #fff; }
+
+    /* ── Alerts ─────────────────────────────────── */
+    .alert { border-radius: 8px; border: none; font-size: 0.85rem; }
+    .alert-warning { background-color: rgba(232, 151, 26, 0.12); color: #f5b43a; }
+    .alert-danger  { background-color: rgba(232, 64, 64, 0.12); color: #f07070; }
+    .alert-success { background-color: rgba(35, 168, 92, 0.12); color: #4fd890; }
+    .alert-info    { background-color: rgba(201, 169, 110, 0.12); color: #d4b882; }
+
+    /* ── AI Paragraph ───────────────────────────── */
+    .paragraph-box {
+      background-color: rgba(201, 169, 110, 0.04);
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      padding: 1.1rem 1.4rem;
+      line-height: 1.85;
+      font-size: 0.875rem;
+      color: var(--text-primary);
+    }
+
+    /* ── Score Ring (conic-gradient) ────────────── */
+    .score-ring {
+      width: 54px; height: 54px;
+      border-radius: 50%;
+      background: conic-gradient(
+        var(--ring-color, #23a85c) calc(var(--pct, 0) * 1%),
+        var(--border) 0
+      );
+      display: flex; align-items: center; justify-content: center;
+      position: relative; flex-shrink: 0;
+    }
+    .score-ring::before {
+      content: '';
+      position: absolute;
+      width: 38px; height: 38px;
+      border-radius: 50%;
+      background: var(--bg-card);
+    }
+    .score-ring-label {
+      position: relative; z-index: 1;
+      font-size: 10px; font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--ring-color, #23a85c);
+    }
+
+    /* Large variant for detail page */
+    .score-ring-lg {
+      width: 72px; height: 72px;
+    }
+    .score-ring-lg::before { width: 52px; height: 52px; }
+    .score-ring-lg .score-ring-label { font-size: 13px; }
+
+    /* ── Section label ──────────────────────────── */
+    .section-label {
+      font-size: 0.68rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.8px;
+      color: var(--text-muted); margin-bottom: 0.6rem;
+    }
+
+    /* ── Metric card (score breakdown) ─────────── */
+    .metric-card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+    }
+    .metric-card .metric-label {
+      font-size: 0.68rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.6px;
+      color: var(--text-muted); margin-bottom: 0.3rem;
+    }
+    .metric-card .metric-value {
+      font-size: 1.5rem; font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      line-height: 1;
+    }
+    .metric-card .metric-sub {
+      font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.2rem;
+    }
+
+    /* ── Verdict chip ───────────────────────────── */
+    .verdict-mal {
+      background-color: rgba(232, 64, 64, 0.15);
+      color: #f07070;
+      border: 1px solid rgba(232, 64, 64, 0.3);
+      border-radius: 20px; padding: 0.2rem 0.65rem;
+      font-size: 0.72rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.4px;
+    }
+    .verdict-ok {
+      background-color: rgba(35, 168, 92, 0.12);
+      color: #4fd890;
+      border: 1px solid rgba(35, 168, 92, 0.25);
+      border-radius: 20px; padding: 0.2rem 0.65rem;
+      font-size: 0.72rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.4px;
+    }
+
+    /* ── IOC Card (Atlas) ───────────────────────── */
+    .ioc-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+      cursor: pointer;
+      display: flex; flex-direction: column;
+    }
+    .ioc-card:hover {
+      border-color: var(--accent-dim);
+      box-shadow: 0 4px 20px rgba(201, 169, 110, 0.12);
+      transform: translateY(-1px);
+    }
+    .ioc-card.mal {
+      border-left: 3px solid var(--danger);
+    }
+    .ioc-card.ok {
+      border-left: 3px solid var(--success);
+    }
+    .ioc-card-body {
+      padding: 0.9rem 1rem;
+      flex: 1;
+    }
+    .ioc-card-footer {
+      padding: 0.55rem 1rem;
+      border-top: 1px solid var(--border-subtle);
+      background: rgba(255,255,255,0.01);
+      border-radius: 0 0 10px 10px;
+    }
+
+    /* ── Sidebar (Atlas) ────────────────────────── */
+    .filter-sidebar {
+      width: 220px; flex-shrink: 0;
+    }
+    .filter-group { margin-bottom: 1.25rem; }
+    .filter-group-label {
+      font-size: 0.65rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.8px;
+      color: var(--text-muted); margin-bottom: 0.5rem;
+    }
+    .filter-pill {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.35rem 0.65rem;
+      border-radius: 6px;
+      font-size: 0.8rem; font-weight: 500;
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: background-color 0.12s, color 0.12s;
+    }
+    .filter-pill:hover {
+      background-color: var(--bg-hover); color: var(--text-primary);
+    }
+    .filter-pill.active {
+      background-color: rgba(201, 169, 110, 0.12);
+      color: var(--accent);
+    }
+    .filter-count {
+      font-size: 0.68rem; color: var(--text-muted);
+      background: var(--bg-elevated);
+      border-radius: 10px; padding: 0.1rem 0.45rem;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .filter-pill.active .filter-count {
+      background: rgba(201, 169, 110, 0.2); color: var(--accent);
+    }
+
+    /* ── Source chip ────────────────────────────── */
+    .source-chip {
+      display: inline-block;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.1rem 0.45rem;
+      font-size: 0.68rem; font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    /* ── TLP badges ─────────────────────────────── */
+    .tlp-white  { background: rgba(200,200,200,0.12); color: #b0b8cc; border: 1px solid rgba(180,180,180,0.2); }
+    .tlp-green  { background: rgba(35,168,92,0.12);   color: #4fd890; border: 1px solid rgba(35,168,92,0.25); }
+    .tlp-amber  { background: rgba(232,151,26,0.12);  color: #f5b43a; border: 1px solid rgba(232,151,26,0.25); }
+    .tlp-red    { background: rgba(232,64,64,0.12);   color: #f07070; border: 1px solid rgba(232,64,64,0.25); }
+    .tlp-badge {
+      border-radius: 4px; padding: 0.15rem 0.5rem;
+      font-size: 0.7rem; font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* ── Stale badge ────────────────────────────── */
+    .stale-badge {
+      background: rgba(122, 72, 0, 0.2);
+      color: #c47a1a;
+      border: 1px solid rgba(200, 120, 20, 0.2);
+      border-radius: 4px; padding: 0.1rem 0.5rem;
+      font-size: 0.68rem;
+    }
+
+    /* ── Detail page hero ───────────────────────── */
+    .ioc-hero-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.4rem;
+      font-weight: 600;
+      word-break: break-all;
+      color: var(--text-primary);
+    }
+
+    /* ── Comment thread ─────────────────────────── */
+    .comment-item {
+      background: var(--bg-elevated);
+      border-radius: 8px;
+      padding: 0.9rem 1rem;
+      border-left: 2px solid var(--border);
+    }
+    .comment-avatar {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.7rem; font-weight: 700;
+      color: var(--accent); flex-shrink: 0;
+    }
+
+    /* ── Scrollbar ──────────────────────────────── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: var(--bg-base); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+    footer { border-top: 1px solid var(--border); }
   </style>
 </head>
 <body>
-  <nav class="navbar navbar-expand-lg navbar-dark">
-    <div class="container">
-      <a class="navbar-brand fw-bold" href="{{ url_for('ioc.index') }}">
-        <i class="bi bi-shield-check text-info me-2"></i>IOC Enricher
+  <nav class="navbar sticky-top">
+    <div class="container-xl d-flex align-items-center" style="gap:.4rem;height:52px;">
+
+      <!-- Brand -->
+      <a class="navbar-brand d-flex align-items-center gap-2 flex-shrink-0 me-1"
+         href="{{ url_for('ioc.index') }}">
+        <i class="bi bi-shield-fill-check" style="color:var(--accent);font-size:1rem;"></i>
+        IOC Enricher
       </a>
-      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
-        <span class="navbar-toggler-icon"></span>
-      </button>
-      <div class="collapse navbar-collapse" id="nav">
-        <ul class="navbar-nav me-auto">
-          <li class="nav-item">
-            <a class="nav-link" href="{{ url_for('ioc.index') }}">
-              <i class="bi bi-list-ul me-1"></i>Historique
-            </a>
-          </li>
-          {% if current_user.is_authenticated and current_user.is_approved %}
-          <li class="nav-item">
-            <a class="nav-link" href="{{ url_for('ioc.enrich') }}">
-              <i class="bi bi-plus-circle me-1"></i>Enrichir
-            </a>
-          </li>
+
+      <!-- Desktop nav links -->
+      <div class="d-none d-lg-flex align-items-center flex-shrink-0" style="gap:.1rem;">
+        <a class="nav-link {% if request.endpoint == 'ioc.index' %}active{% endif %}"
+           href="{{ url_for('ioc.index') }}">Historique</a>
+        <a class="nav-link {% if request.endpoint == 'ioc.detail' %}active{% endif %}"
+           {% if request.endpoint == 'ioc.detail' %}href="{{ request.path }}"{% else %}href="#" style="opacity:.4;pointer-events:none;"{% endif %}>Détail</a>
+        <a class="nav-link {% if request.endpoint in ('ioc.pivot_families', 'ioc.pivot_family') %}active{% endif %}"
+           href="{{ url_for('ioc.pivot_families') }}">Familles</a>
+        {% if current_user.is_authenticated and current_user.is_approved %}
+        <a class="nav-link {% if request.endpoint == 'ioc.enrich' %}active{% endif %}"
+           href="{{ url_for('ioc.enrich') }}">Enrichir</a>
+        {% endif %}
+        {% if current_user.is_authenticated and current_user.is_admin %}
+        <a class="nav-link" href="{{ url_for('admin.users') }}">Admin</a>
+        {% endif %}
+      </div>
+
+      <!-- Search (grows between nav and right) -->
+      <form method="get" action="{{ url_for('ioc.index') }}"
+            class="d-none d-lg-flex flex-grow-1 mx-2" style="max-width:420px;">
+        <div class="input-group input-group-sm w-100">
+          <span class="input-group-text"
+                style="background:var(--bg-elevated);border-color:var(--border);border-right:none;color:var(--text-muted);">
+            <i class="bi bi-search" style="font-size:.78rem;"></i>
+          </span>
+          <input type="text" name="q" id="global-search" class="form-control ioc-value"
+                 placeholder="Rechercher IP, domaine, hash…"
+                 autocomplete="off"
+                 style="border-left:none;border-right:none;font-size:.8rem;">
+          <span class="input-group-text"
+                style="background:var(--bg-elevated);border-color:var(--border);border-left:none;
+                       color:var(--text-muted);font-size:.62rem;font-family:'JetBrains Mono',monospace;
+                       letter-spacing:-.5px;white-space:nowrap;">⌘K</span>
+        </div>
+      </form>
+
+      <!-- Right: Paramètres + user -->
+      <div class="d-none d-lg-flex align-items-center gap-1 flex-shrink-0">
+        {% if current_user.is_authenticated %}
+          {% if current_user.is_approved %}
+          <a class="nav-link {% if request.endpoint == 'auth.api_keys' %}active{% endif %}"
+             href="{{ url_for('auth.api_keys') }}">
+            <i class="bi bi-sliders me-1"></i>Paramètres
+            {% if not current_user.is_admin and not current_user.has_api_keys %}
+            <span class="badge bg-warning text-dark ms-1" style="font-size:.55rem;">!</span>
+            {% endif %}
+          </a>
           {% endif %}
-          {% if current_user.is_authenticated and current_user.is_admin %}
-          <li class="nav-item">
-            <a class="nav-link" href="{{ url_for('admin.users') }}">
-              <i class="bi bi-people me-1"></i>Admin
-            </a>
-          </li>
-          {% endif %}
-          {% if current_user.is_authenticated and current_user.is_approved %}
-          <li class="nav-item">
-            <a class="nav-link" href="{{ url_for('auth.api_keys') }}">
-              <i class="bi bi-key me-1"></i>Paramètres
-              {% if not current_user.is_admin and not current_user.has_api_keys %}
-              <span class="badge bg-warning text-dark ms-1" style="font-size:0.65rem;">!</span>
-              {% endif %}
-            </a>
-          </li>
-          {% endif %}
-        </ul>
-        <ul class="navbar-nav">
-          {% if current_user.is_authenticated %}
-          <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
-              <i class="bi bi-person-circle me-1"></i>{{ current_user.email }}
+          <div class="dropdown ms-1">
+            <a class="nav-link d-flex align-items-center gap-2 px-2 py-1"
+               href="#" data-bs-toggle="dropdown" style="border-radius:8px;">
+              <div class="user-avatar">{{ current_user.email[0].upper() }}</div>
+              <span style="font-size:.78rem;color:var(--text-secondary);max-width:110px;
+                           overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                {{ current_user.email.split('@')[0][:10] }}@…
+              </span>
             </a>
             <ul class="dropdown-menu dropdown-menu-end">
               <li>
-                <span class="dropdown-item-text text-muted small">
-                  Rôle : <strong>{{ current_user.role }}</strong>
-                </span>
+                <div class="dropdown-item-text">
+                  <div style="color:var(--text-primary);font-size:.82rem;font-weight:600;">{{ current_user.email }}</div>
+                  <div style="color:var(--text-muted);font-size:.72rem;">Rôle : {{ current_user.role }}</div>
+                </div>
               </li>
               <li><hr class="dropdown-divider"></li>
               {% if current_user.is_approved %}
               <li>
                 <a class="dropdown-item" href="{{ url_for('auth.api_keys') }}">
-                  <i class="bi bi-key me-1"></i>Mes clés API
+                  <i class="bi bi-key me-2"></i>Mes clés API
                   {% if not current_user.is_admin and not current_user.has_api_keys %}
-                  <span class="badge bg-warning text-dark ms-1" style="font-size:0.65rem;">!</span>
+                  <span class="badge bg-warning text-dark ms-1" style="font-size:.6rem;">!</span>
                   {% endif %}
                 </a>
               </li>
@@ -98,29 +530,66 @@
               {% endif %}
               <li>
                 <a class="dropdown-item" href="{{ url_for('auth.logout') }}">
-                  <i class="bi bi-box-arrow-right me-1"></i>Déconnexion
+                  <i class="bi bi-box-arrow-right me-2"></i>Déconnexion
                 </a>
               </li>
             </ul>
-          </li>
-          {% else %}
-          <li class="nav-item">
-            <a class="nav-link" href="{{ url_for('auth.login') }}">
-              <i class="bi bi-box-arrow-in-right me-1"></i>Connexion
-            </a>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" href="{{ url_for('auth.register') }}">
-              <i class="bi bi-person-plus me-1"></i>Inscription
-            </a>
-          </li>
+          </div>
+        {% else %}
+          <a class="nav-link" href="{{ url_for('auth.login') }}">
+            <i class="bi bi-box-arrow-in-right me-1"></i>Connexion
+          </a>
+          <a class="nav-link" href="{{ url_for('auth.register') }}">
+            <i class="bi bi-person-plus me-1"></i>Inscription
+          </a>
+        {% endif %}
+      </div>
+
+      <!-- Mobile toggle -->
+      <button class="navbar-toggler border-0 d-lg-none ms-auto" type="button"
+              data-bs-toggle="collapse" data-bs-target="#nav-mobile">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+    </div>
+
+    <!-- Mobile collapse -->
+    <div class="collapse" id="nav-mobile">
+      <div class="container-xl py-2" style="border-top:1px solid var(--border);">
+        <form method="get" action="{{ url_for('ioc.index') }}" class="mb-2">
+          <div class="input-group input-group-sm">
+            <span class="input-group-text"
+                  style="background:var(--bg-elevated);border-color:var(--border);color:var(--text-muted);">
+              <i class="bi bi-search"></i>
+            </span>
+            <input type="text" name="q" class="form-control ioc-value"
+                   placeholder="Rechercher IP, domaine, hash…" autocomplete="off">
+          </div>
+        </form>
+        <div class="d-flex flex-wrap gap-1">
+          <a href="{{ url_for('ioc.index') }}"
+             class="nav-link {% if request.endpoint == 'ioc.index' %}active{% endif %}"
+             style="padding:.3rem .65rem;">Historique</a>
+          {% if current_user.is_authenticated and current_user.is_approved %}
+          <a href="{{ url_for('ioc.enrich') }}"
+             class="nav-link {% if request.endpoint == 'ioc.enrich' %}active{% endif %}"
+             style="padding:.3rem .65rem;">Enrichir</a>
+          <a href="{{ url_for('auth.api_keys') }}" class="nav-link" style="padding:.3rem .65rem;">Paramètres</a>
           {% endif %}
-        </ul>
+          {% if current_user.is_authenticated and current_user.is_admin %}
+          <a href="{{ url_for('admin.users') }}" class="nav-link" style="padding:.3rem .65rem;">Admin</a>
+          {% endif %}
+          {% if current_user.is_authenticated %}
+          <a href="{{ url_for('auth.logout') }}" class="nav-link"
+             style="padding:.3rem .65rem;color:var(--danger)!important;">Déconnexion</a>
+          {% else %}
+          <a href="{{ url_for('auth.login') }}" class="nav-link" style="padding:.3rem .65rem;">Connexion</a>
+          {% endif %}
+        </div>
       </div>
     </div>
   </nav>
 
-  <div class="container mt-4 mb-5">
+  <div class="container-xl mt-4 mb-5">
     {% if current_user.is_authenticated and current_user.is_approved and not current_user.is_admin and not current_user.has_api_keys %}
     <div class="alert alert-warning d-flex align-items-center gap-2 mb-3" role="alert">
       <i class="bi bi-key-fill flex-shrink-0"></i>
@@ -143,11 +612,21 @@
     {% block content %}{% endblock %}
   </div>
 
-  <footer class="py-3 text-center text-muted small">
+  <footer class="py-3 text-center small" style="color:var(--text-muted);">
     IOC Enricher &mdash; Mohamed MESRI
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    // ⌘K / Ctrl+K → focus global search
+    document.addEventListener('keydown', function(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        var s = document.getElementById('global-search');
+        if (s) { s.focus(); s.select(); }
+      }
+    });
+  </script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

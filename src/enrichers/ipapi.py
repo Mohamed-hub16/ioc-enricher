@@ -32,6 +32,7 @@ def enrich(ioc: IOC, keys: dict | None = None) -> EnrichmentResult:
 
     data = {
         "country":      payload.get("country"),
+        "country_code": payload.get("countryCode"),
         "region":       payload.get("regionName"),
         "city":         payload.get("city"),
         "isp":          payload.get("isp"),

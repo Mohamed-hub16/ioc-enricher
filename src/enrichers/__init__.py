@@ -14,3 +14,17 @@ ENRICHERS_BY_TYPE: dict[str, list] = {
     "domain": [virustotal.enrich, urlscan.enrich, urlhaus.enrich, threatfox.enrich],
     "hash":   [virustotal.enrich, threatfox.enrich, malwarebazaar.enrich],
 }
+
+# Maps each enricher function → the source name it sets in EnrichmentResult.source
+# Used by patch_enrich.py to detect which sources are missing on existing records.
+ENRICHER_SOURCE_NAME: dict = {
+    abuseipdb.enrich:         "AbuseIPDB",
+    virustotal.enrich:        "VirusTotal",
+    urlscan.enrich:           "urlscan.io",
+    ipapi.enrich:             "ip-api.com",
+    shodan_internetdb.enrich: "Shodan InternetDB",
+    greynoise.enrich:         "GreyNoise",
+    urlhaus.enrich:           "URLhaus",
+    threatfox.enrich:         "ThreatFox",
+    malwarebazaar.enrich:     "MalwareBazaar",
+}

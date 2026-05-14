@@ -133,6 +133,35 @@ class IOCRecord(db.Model):
     def is_malicious(self) -> bool:
         return (self.threat_score or 0) > 0
 
+    @property
+    def is_suspect(self) -> bool:
+        score = self.threat_score or 0
+        return 0 < score <= 30
+
+    @property
+    def card_meta(self) -> dict:
+        """Single-pass extraction of all card-display data from raw results."""
+        meta = {"vt_ratio": "", "geo": "", "isp": "", "sources": []}
+        for res in self.get_results():
+            if res.get("error"):
+                continue
+            src = res.get("source", "")
+            d = res.get("data") or {}
+            meta["sources"].append(src)
+            if src == "VirusTotal":
+                mal = d.get("malicious", 0) or 0
+                tot = d.get("total_engines", 0) or 0
+                if tot:
+                    meta["vt_ratio"] = f"{mal}/{tot}"
+            elif src == "ip-api.com":
+                country = d.get("country_code") or d.get("country", "")
+                city = d.get("city", "")
+                parts = [p for p in [country, city] if p]
+                meta["geo"] = " · ".join(parts)
+                asn = d.get("asn", "")
+                meta["isp"] = " ".join(asn.split()[:2]) if asn else d.get("isp", "")
+        return meta
+
 
 class Comment(db.Model):
     __tablename__ = "comments"

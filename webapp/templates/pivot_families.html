@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Pivot familles — IOC Enricher{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center gap-3 mb-4">
+  <div>
+    <h5 class="mb-0 d-flex align-items-center gap-2" style="font-size:1rem;font-weight:700;">
+      <i class="bi bi-diagram-3" style="color:var(--warning);"></i>
+      Pivot familles
+    </h5>
+    <div style="font-size:.74rem;color:var(--text-muted);margin-top:.15rem;">
+      {{ families | length }} famille{{ 's' if families | length != 1 }} de malware détectées
+    </div>
+  </div>
+</div>
+
+{% if families %}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:.65rem;">
+  {% for fam, total, malicious, last_seen in families %}
+  {%- set pct = ((malicious or 0) / total * 100) | int -%}
+  <a href="{{ url_for('ioc.pivot_family', family=fam) }}"
+     class="text-decoration-none"
+     style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;
+            padding:.9rem 1rem;display:flex;flex-direction:column;gap:.55rem;
+            transition:border-color .13s,box-shadow .13s;border-left:3px solid var(--warning);"
+     onmouseover="this.style.borderColor='var(--accent-dim)';this.style.boxShadow='0 3px 16px rgba(201,169,110,.1)'"
+     onmouseout="this.style.borderColor='var(--border)';this.style.boxShadow='none';this.style.borderLeftColor='var(--warning)'">
+
+    <!-- Name -->
+    <div class="d-flex align-items-center justify-content-between">
+      <span class="ioc-value" style="font-size:.88rem;font-weight:700;color:var(--warning);">
+        <i class="bi bi-diagram-3 me-1" style="font-size:.78rem;opacity:.7;"></i>{{ fam }}
+      </span>
+      <i class="bi bi-chevron-right" style="font-size:.7rem;color:var(--text-muted);opacity:.5;"></i>
+    </div>
+
+    <!-- Counts -->
+    <div class="d-flex align-items-center gap-3">
+      <div>
+        <div style="font-size:1.25rem;font-weight:700;font-family:'JetBrains Mono',monospace;
+                    color:var(--text-primary);line-height:1;">{{ total }}</div>
+        <div style="font-size:.62rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">
+          IOCs
+        </div>
+      </div>
+      <div>
+        <div style="font-size:1.25rem;font-weight:700;font-family:'JetBrains Mono',monospace;
+                    color:var(--danger);line-height:1;">{{ malicious or 0 }}</div>
+        <div style="font-size:.62rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">
+          malv.
+        </div>
+      </div>
+    </div>
+
+    <!-- Progress bar malicious/total -->
+    <div style="background:var(--bg-elevated);border-radius:4px;height:4px;overflow:hidden;">
+      <div style="width:{{ [pct, 3] | max }}%;height:100%;
+                  background:{% if pct > 60 %}var(--danger){% elif pct > 20 %}var(--warning){% else %}var(--success){% endif %};
+                  border-radius:4px;transition:width .3s;"></div>
+    </div>
+
+    <!-- Last seen -->
+    <div style="font-size:.68rem;color:var(--text-muted);">
+      <i class="bi bi-clock me-1" style="opacity:.5;"></i>
+      {% set age = (last_seen - last_seen).days if last_seen else 0 %}
+      Dernière activité ·
+      {% set diff = namespace(d=(now_utc - last_seen).days if last_seen else 0) %}
+      {% if diff.d == 0 %}aujourd'hui
+      {% elif diff.d == 1 %}hier
+      {% else %}il y a {{ diff.d }}j
+      {% endif %}
+    </div>
+  </a>
+  {% endfor %}
+</div>
+
+{% else %}
+<div class="text-center py-5" style="color:var(--text-muted);">
+  <i class="bi bi-diagram-3" style="font-size:2.5rem;display:block;margin-bottom:1rem;opacity:.3;"></i>
+  <div style="font-size:.9rem;">Aucune famille de malware détectée pour l'instant.</div>
+  <div class="mt-3">
+    <a href="{{ url_for('ioc.enrich') }}" class="btn btn-primary btn-sm">
+      <i class="bi bi-plus-circle me-1"></i>Enrichir des IOCs
+    </a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

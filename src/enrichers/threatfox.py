@@ -26,10 +26,13 @@ def enrich(ioc: IOC, keys: dict | None = None) -> EnrichmentResult:
     except Exception as exc:
         return EnrichmentResult(source="ThreatFox", ioc=ioc, error=str(exc))
 
-    if payload.get("query_status") in ("no_results", "illegal_search_term"):
+    if payload.get("query_status") in ("no_result", "no_results", "illegal_search_term"):
         return EnrichmentResult(source="ThreatFox", ioc=ioc, data={"found": False})
 
-    data = (payload.get("data") or [])[:5]
+    raw_data = payload.get("data") or []
+    if not isinstance(raw_data, list):
+        return EnrichmentResult(source="ThreatFox", ioc=ioc, data={"found": False})
+    data = raw_data[:5]
     return EnrichmentResult(
         source="ThreatFox",
         ioc=ioc,

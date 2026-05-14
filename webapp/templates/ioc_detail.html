@@ -5,8 +5,8 @@
   {%- if v is mapping -%}
     {%- for k2, v2 in v.items() -%}
       {%- if v2 is not none and v2 != '' -%}
-        <div class="ms-2 small">
-          <span class="text-muted">{{ k2 }}</span>: {{ v2 }}
+        <div class="ms-2 small" style="color:var(--text-secondary);">
+          <span style="color:var(--text-muted);">{{ k2 }}</span>: {{ v2 }}
         </div>
       {%- endif -%}
     {%- endfor -%}
@@ -16,233 +16,254 @@
         <div class="ms-1 mb-1">
           {%- for ik, iv in item.items() -%}
             {%- if iv -%}
-              <span class="badge bg-dark border me-1" style="font-size:0.75rem;">
-                {{ ik }}: {{ iv }}
-              </span>
+              <span class="source-chip me-1">{{ ik }}: {{ iv }}</span>
             {%- endif -%}
           {%- endfor -%}
         </div>
       {%- else -%}
-        <span class="badge bg-secondary me-1">{{ item }}</span>
+        <span class="badge bg-secondary me-1 mb-1" style="font-size:.72rem;">{{ item }}</span>
       {%- endif -%}
     {%- endfor -%}
   {%- else -%}
-    <span class="ioc-value">{{ v }}</span>
+    <span class="ioc-value" style="color:var(--text-primary);">{{ v }}</span>
   {%- endif -%}
 {% endmacro %}
 
 {% block content %}
-<!-- Header -->
-<div class="d-flex flex-wrap align-items-center gap-3 mb-2">
-  <a href="{{ url_for('ioc.index') }}" class="btn btn-sm btn-outline-secondary">
+
+{# ── Derived variables ───────────────────────────────────────── #}
+{% set score = record.threat_score or 0 %}
+{% if score == 0 %}
+  {% set ring_color = '#23a85c' %}{% set score_label = 'Légitime' %}{% set score_icon = 'shield-check' %}
+{% elif score <= 30 %}
+  {% set ring_color = '#d4870a' %}{% set score_label = 'Risque faible' %}{% set score_icon = 'exclamation-circle' %}
+{% elif score <= 70 %}
+  {% set ring_color = '#e06020' %}{% set score_label = 'Risque modéré' %}{% set score_icon = 'exclamation-triangle' %}
+{% else %}
+  {% set ring_color = '#e84040' %}{% set score_label = 'Risque élevé' %}{% set score_icon = 'shield-exclamation' %}
+{% endif %}
+{% set tlp = record.tlp or 'WHITE' %}
+{% if tlp == 'RED' %}{% set tlp_cls = 'tlp-red' %}
+{% elif tlp == 'AMBER' %}{% set tlp_cls = 'tlp-amber' %}
+{% elif tlp == 'GREEN' %}{% set tlp_cls = 'tlp-green' %}
+{% else %}{% set tlp_cls = 'tlp-white' %}{% endif %}
+{% set breakdown = record.get_score_breakdown() %}
+
+{# ── Breadcrumb ──────────────────────────────────────────────── #}
+<div class="d-flex align-items-center gap-3 mb-4">
+  <a href="{{ url_for('ioc.index') }}"
+     class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1">
     <i class="bi bi-arrow-left"></i>
+    <span class="d-none d-sm-inline">Historique</span>
   </a>
-  <h4 class="mb-0 ioc-value" style="word-break: break-all; max-width: 100%;">{{ record.value }}</h4>
-  <span class="badge badge-{{ record.ioc_type }} px-3 py-2">{{ record.ioc_type }}</span>
-  {% if record.is_malicious %}
-  <span class="badge bg-danger px-3 py-2">
-    <i class="bi bi-exclamation-triangle me-1"></i>Potentiellement malveillant
-  </span>
-  {% else %}
-  <span class="badge bg-success px-3 py-2">
-    <i class="bi bi-shield-check me-1"></i>Légitime
-  </span>
-  {% endif %}
-  {% if record.is_stale %}
-  <span class="badge bg-warning text-dark">
-    <i class="bi bi-clock-history me-1"></i>Données de plus de 7 jours
-  </span>
-  {% endif %}
+  <div style="font-size:.75rem;color:var(--text-muted);">
+    <i class="bi bi-database me-1"></i>Base de connaissance
+    <i class="bi bi-chevron-right mx-1" style="font-size:.6rem;"></i>
+    <span class="ioc-value" style="color:var(--text-secondary);">{{ record.value[:32] }}{% if record.value|length > 32 %}…{% endif %}</span>
+  </div>
   {% if current_user.is_authenticated and current_user.is_admin %}
   <form method="post" action="{{ url_for('ioc.delete_ioc', value=record.value) }}"
         class="ms-auto"
         onsubmit="return confirm('Supprimer définitivement cet IOC et tous ses commentaires ?')">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button type="submit" class="btn btn-sm btn-outline-danger">
-      <i class="bi bi-trash3 me-1"></i>Supprimer
+      <i class="bi bi-trash3"></i>
     </button>
   </form>
   {% endif %}
 </div>
 
-<!-- Threat Score Gauge -->
-{% set score = record.threat_score or 0 %}
-{% if score == 0 %}
-  {% set gauge_color = 'success' %}
-  {% set gauge_label = 'Légitime' %}
-  {% set gauge_icon = 'shield-check' %}
-{% elif score <= 30 %}
-  {% set gauge_color = 'warning' %}
-  {% set gauge_label = 'Risque faible' %}
-  {% set gauge_icon = 'exclamation-circle' %}
-{% elif score <= 70 %}
-  {% set gauge_color = 'orange' %}
-  {% set gauge_label = 'Risque modéré' %}
-  {% set gauge_icon = 'exclamation-triangle' %}
-{% else %}
-  {% set gauge_color = 'danger' %}
-  {% set gauge_label = 'Risque élevé' %}
-  {% set gauge_icon = 'shield-exclamation' %}
-{% endif %}
-
-<div class="card mb-4" style="border-color: #30363d;">
-  <div class="card-body py-3">
-    <div class="d-flex align-items-center gap-4 flex-wrap">
-      <div class="text-center" style="min-width: 90px;">
-        <div class="display-5 fw-bold
-          {% if score == 0 %}text-success
-          {% elif score <= 30 %}text-warning
-          {% elif score <= 70 %}text-orange
-          {% else %}text-danger{% endif %}"
-          style="{% if score > 30 and score <= 70 %}color: #fd7e14 !important;{% endif %} font-variant-numeric: tabular-nums;">
-          {{ score }}<span class="fs-4 fw-normal text-muted">/100</span>
-        </div>
-        <div class="small fw-semibold mt-1
-          {% if score == 0 %}text-success
-          {% elif score <= 30 %}text-warning
-          {% elif score <= 70 %}text-orange
-          {% else %}text-danger{% endif %}"
-          style="{% if score > 30 and score <= 70 %}color: #fd7e14 !important;{% endif %}">
-          <i class="bi bi-{{ gauge_icon }} me-1"></i>{{ gauge_label }}
-        </div>
-      </div>
-      <div class="flex-grow-1">
-        <div class="d-flex justify-content-between small text-muted mb-1">
-          <span>Score de menace global</span>
-          <span class="text-muted fst-italic" style="font-size:0.75rem;">
-            {% if record.ioc_type == 'hash' %}VirusTotal{% else %}AbuseIPDB × VirusTotal{% endif %}
-          </span>
-        </div>
-        <div class="progress" style="height: 12px; background-color: #0d1117; border-radius: 6px;">
-          <div class="progress-bar
-            {% if score == 0 %}bg-success
-            {% elif score <= 30 %}bg-warning
-            {% elif score <= 70 %}bg-orange
-            {% else %}bg-danger{% endif %}"
-            role="progressbar"
-            style="width: {{ [score, 3]|max }}%;
-                   {% if score > 30 and score <= 70 %}background-color: #fd7e14 !important;{% endif %}
-                   border-radius: 6px; transition: width 0.6s ease;">
-          </div>
-        </div>
-        <div class="d-flex justify-content-between small text-muted mt-1">
-          <span>0 — Sûr</span>
-          <span>100 — Malveillant</span>
-        </div>
-      </div>
-    </div>
+{# ── Hero ────────────────────────────────────────────────────── #}
+<div class="mb-4">
+  <div class="ioc-hero-value mb-2">{{ record.value }}</div>
+  <div class="d-flex flex-wrap align-items-center gap-2">
+    <span class="badge badge-{{ record.ioc_type }}" style="font-size:.7rem;padding:.3rem .65rem;">
+      {{ record.ioc_type.upper() }}
+    </span>
+    {% if record.is_malicious %}
+    <span class="verdict-mal"><i class="bi bi-exclamation-triangle me-1"></i>Potentiellement malveillant</span>
+    {% else %}
+    <span class="verdict-ok"><i class="bi bi-shield-check me-1"></i>Légitime</span>
+    {% endif %}
+    <span class="tlp-badge {{ tlp_cls }}">TLP:{{ tlp }}</span>
+    {% if record.malware_family %}
+    <a href="{{ url_for('ioc.pivot_family', family=record.malware_family) }}"
+       class="text-decoration-none"
+       style="background:rgba(232,151,26,.12);color:var(--warning);border:1px solid rgba(232,151,26,.25);border-radius:4px;padding:.15rem .55rem;font-size:.72rem;font-weight:600;">
+      <i class="bi bi-diagram-3 me-1"></i>{{ record.malware_family }}
+    </a>
+    {% endif %}
+    {% for tag in record.get_tags() %}
+    <span style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:4px;padding:.1rem .5rem;font-size:.7rem;color:var(--text-secondary);">
+      #{{ tag }}
+    </span>
+    {% endfor %}
+    {% if record.is_stale %}
+    <span class="stale-badge"><i class="bi bi-clock-history me-1"></i>Données > 14 jours</span>
+    {% endif %}
   </div>
 </div>
 
-<!-- Meta + re-enrich -->
-<p class="text-muted small mb-4">
-  <i class="bi bi-clock me-1"></i>
-  Enrichi le {{ record.enriched_at.strftime('%d/%m/%Y à %H:%M UTC') }}
-  {% if record.enriched_by %}
-    par <strong>{{ record.enriched_by }}</strong>
+{# ── Score breakdown ─────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+  {# Global score card #}
+  <div class="col-sm-4 col-lg-3">
+    <div class="metric-card h-100">
+      <div class="metric-label"><i class="bi bi-speedometer2 me-1"></i>Score global</div>
+      <div class="d-flex align-items-center gap-3 mt-2">
+        <div class="score-ring score-ring-lg" style="--pct:{{ [score,100]|min }};--ring-color:{{ ring_color }};">
+          <span class="score-ring-label">{{ score }}</span>
+        </div>
+        <div>
+          <div class="metric-value" style="color:{{ ring_color }};">
+            {{ score }}<span style="font-size:.9rem;font-weight:400;color:var(--text-muted);">/100</span>
+          </div>
+          <div class="metric-sub">
+            <i class="bi bi-{{ score_icon }} me-1" style="color:{{ ring_color }};"></i>{{ score_label }}
+          </div>
+        </div>
+      </div>
+      <div class="mt-2" style="height:4px;background:var(--border);border-radius:2px;overflow:hidden;">
+        <div style="width:{{ [score,3]|max }}%;height:100%;background:{{ ring_color }};border-radius:2px;transition:width .5s ease;"></div>
+      </div>
+      <div class="metric-sub mt-1" style="font-size:.65rem;">
+        {% if record.ioc_type == 'hash' %}Basé sur VirusTotal{% else %}AbuseIPDB × VirusTotal{% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# Per-source breakdown #}
+  {% if breakdown %}
+  {% for src_name, src_val in breakdown.items() %}
+  <div class="col-sm-4 col-lg-3">
+    <div class="metric-card h-100">
+      <div class="metric-label">
+        {% if src_name == 'AbuseIPDB' %}<i class="bi bi-flag me-1"></i>
+        {% elif src_name == 'VirusTotal' %}<i class="bi bi-bug me-1"></i>
+        {% elif src_name == 'GreyNoise' %}<i class="bi bi-broadcast me-1"></i>
+        {% elif src_name == 'Shodan InternetDB' %}<i class="bi bi-hdd-network me-1"></i>
+        {% elif src_name == 'URLhaus' or src_name == 'ThreatFox' %}<i class="bi bi-link-45deg me-1"></i>
+        {% else %}<i class="bi bi-shield me-1"></i>{% endif %}
+        {{ src_name }}
+      </div>
+      {% if src_val == 'malicious' %}
+        <div class="metric-value mt-2" style="color:var(--danger);">Malveillant</div>
+      {% elif src_val == 'benign' %}
+        <div class="metric-value mt-2" style="color:var(--success);">Bénin</div>
+      {% elif src_val is string %}
+        <div class="metric-value mt-2" style="color:var(--text-secondary);">{{ src_val }}</div>
+      {% elif src_name == 'AbuseIPDB' %}
+        <div class="metric-value mt-2" style="color:{% if src_val > 70 %}var(--danger){% elif src_val > 30 %}var(--warning){% else %}var(--success){% endif %};">
+          {{ src_val }}<span style="font-size:.9rem;font-weight:400;color:var(--text-muted);">%</span>
+        </div>
+        <div class="metric-sub">Confiance d'abus</div>
+      {% elif src_name == 'VirusTotal' %}
+        {% set vt_res = results | selectattr('source', 'equalto', 'VirusTotal') | list %}
+        {% if vt_res and not vt_res[0].get('error') %}
+          {% set mal = vt_res[0].get('data', {}).get('malicious', 0) or 0 %}
+          {% set tot = vt_res[0].get('data', {}).get('total_engines', 0) or 0 %}
+          <div class="metric-value mt-2" style="color:{% if src_val > 50 %}var(--danger){% elif src_val > 20 %}var(--warning){% else %}var(--success){% endif %};">
+            {{ mal }}<span style="font-size:.85rem;font-weight:400;color:var(--text-muted);">/{{ tot }}</span>
+          </div>
+          <div class="metric-sub">Scanners détecteurs</div>
+        {% else %}
+          <div class="metric-value mt-2" style="color:{% if src_val > 50 %}var(--danger){% elif src_val > 20 %}var(--warning){% else %}var(--success){% endif %};">
+            {{ src_val }}<span style="font-size:.9rem;font-weight:400;color:var(--text-muted);">%</span>
+          </div>
+          <div class="metric-sub">Score détection</div>
+        {% endif %}
+      {% else %}
+        <div class="metric-value mt-2" style="color:var(--warning);">{{ src_val }}</div>
+        <div class="metric-sub">résultats</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
   {% endif %}
-  &nbsp;&middot;&nbsp;
-  <i class="bi bi-eye me-1"></i>{{ record.view_count or 0 }} consultation{{ 's' if (record.view_count or 0) > 1 else '' }}
+</div>
+
+{# ── Meta + actions bar ──────────────────────────────────────── #}
+<div class="d-flex flex-wrap align-items-center gap-3 mb-4 pb-4"
+     style="border-bottom:1px solid var(--border-subtle);">
+  <div style="font-size:.78rem;color:var(--text-muted);">
+    <i class="bi bi-clock me-1"></i>
+    Enrichi le <strong style="color:var(--text-secondary);">{{ record.enriched_at.strftime('%d/%m/%Y à %H:%M') }} UTC</strong>
+    {% if record.enriched_by %}
+    par <strong style="color:var(--text-secondary);">{{ record.enriched_by }}</strong>
+    {% endif %}
+  </div>
+  <div style="font-size:.78rem;color:var(--text-muted);">
+    <i class="bi bi-eye me-1"></i>
+    {{ record.view_count or 0 }} consultation{{ 's' if (record.view_count or 0) > 1 else '' }}
+  </div>
   {% if current_user.is_authenticated and current_user.is_approved %}
-  &nbsp;&middot;&nbsp;
   <form method="post" action="{{ url_for('ioc.enrich') }}" class="d-inline" id="reenrich-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="ioc" value="{{ record.value }}">
     <input type="hidden" name="force" value="1">
-    <button type="submit" class="btn btn-link btn-sm p-0 text-warning text-decoration-none"
-            id="reenrich-btn">
+    <button type="submit" class="btn btn-sm btn-outline-secondary" id="reenrich-btn">
       <i class="bi bi-arrow-clockwise me-1"></i>Re-enrichir
     </button>
   </form>
-  {% endif %}
-</p>
 
-<!-- TLP + Tags + Malware Family row -->
-<div class="d-flex flex-wrap align-items-center gap-2 mb-4">
-  {% set tlp = record.tlp or 'WHITE' %}
-  {% if tlp == 'RED' %}{% set tlp_color = 'danger' %}
-  {% elif tlp == 'AMBER' %}{% set tlp_color = 'warning' %}
-  {% elif tlp == 'GREEN' %}{% set tlp_color = 'success' %}
-  {% else %}{% set tlp_color = 'secondary' %}{% endif %}
-  <span class="badge bg-{{ tlp_color }} me-1" title="Traffic Light Protocol">TLP:{{ tlp }}</span>
-
-  {% if record.malware_family %}
-  <a href="{{ url_for('ioc.pivot_family', family=record.malware_family) }}"
-     class="badge text-decoration-none"
-     style="background:#9a6700; color:#fff; font-size:.8rem;">
-    <i class="bi bi-diagram-3 me-1"></i>{{ record.malware_family }}
-  </a>
-  {% endif %}
-
-  {% for tag in record.get_tags() %}
-  <span class="badge" style="background:#1c2128; border:1px solid #30363d; color:#c9d1d9; font-size:.78rem;">
-    <i class="bi bi-tag me-1"></i>{{ tag }}
-  </span>
-  {% endfor %}
-
-  {% if current_user.is_authenticated and current_user.is_approved %}
-  <!-- TLP setter -->
+  {# TLP + Tags (inline forms) #}
   <form method="post" action="{{ url_for('ioc.set_tlp', value=record.value) }}" class="d-inline">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <select name="tlp" class="form-select form-select-sm d-inline-block w-auto"
-            onchange="this.form.submit()" style="background:#161b22; border-color:#30363d; color:#c9d1d9; font-size:.78rem;">
+            onchange="this.form.submit()" style="font-size:.72rem;padding:.2rem .5rem;">
       {% for t in ['WHITE','GREEN','AMBER','RED'] %}
       <option value="{{ t }}" {% if t == tlp %}selected{% endif %}>TLP:{{ t }}</option>
       {% endfor %}
     </select>
   </form>
-  <!-- Tags setter -->
   <form method="post" action="{{ url_for('ioc.set_tags', value=record.value) }}" class="d-inline d-flex gap-1">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="text" name="tags" class="form-control form-control-sm"
            placeholder="tag1, tag2…" value="{{ record.get_tags() | join(', ') }}"
-           style="width:160px; background:#161b22; border-color:#30363d; color:#c9d1d9; font-size:.78rem;">
-    <button type="submit" class="btn btn-sm btn-outline-secondary py-0 px-2" title="Enregistrer les tags">
+           style="width:150px;font-size:.72rem;">
+    <button type="submit" class="btn btn-sm btn-outline-secondary" title="Enregistrer les tags">
       <i class="bi bi-check-lg"></i>
     </button>
   </form>
   {% endif %}
 </div>
 
-<!-- AI Paragraph -->
+{# ── AI Analysis ─────────────────────────────────────────────── #}
 {% if record.paragraph %}
-<div class="card mb-4">
-  <div class="card-header d-flex align-items-center gap-2 py-2">
-    <i class="bi bi-cpu text-info"></i>
-    <strong class="small text-uppercase tracking-wide">Analyse IA (Groq · llama-3.3-70b)</strong>
+<div class="mb-4">
+  <div class="section-label">
+    <i class="bi bi-cpu me-1" style="color:var(--accent);"></i>Analyse IA — Groq · llama-3.3-70b
   </div>
-  <div class="card-body">
-    <p class="paragraph-box mb-0">{{ record.paragraph }}</p>
-  </div>
+  <p class="paragraph-box mb-0">{{ record.paragraph }}</p>
 </div>
 {% endif %}
 
-<!-- Summary Table -->
+{# ── Summary table ───────────────────────────────────────────── #}
 {% if summary %}
 <div class="card mb-4">
-  <div class="card-header d-flex align-items-center justify-content-between py-2">
+  <div class="card-header d-flex align-items-center justify-content-between">
     <div class="d-flex align-items-center gap-2">
-      <i class="bi bi-table text-info"></i>
-      <strong class="small text-uppercase" style="letter-spacing:.5px">Synthèse</strong>
+      <i class="bi bi-table" style="color:var(--accent);"></i>
+      <span class="section-label mb-0">Synthèse</span>
     </div>
-    <button class="btn btn-sm btn-outline-secondary" id="copy-md-btn">
+    <button class="btn btn-sm btn-outline-secondary" id="copy-md-btn" style="font-size:.72rem;">
       <i class="bi bi-clipboard me-1"></i>Copier Markdown
     </button>
   </div>
-  <div class="card-body p-0" style="overflow-x: auto;">
-    <table class="table table-sm align-middle mb-0" style="font-size:.82rem; white-space:nowrap;">
-      <thead style="background:#1c2128;">
+  <div class="card-body p-0" style="overflow-x:auto;">
+    <table class="table table-sm align-middle mb-0" style="font-size:.78rem;white-space:nowrap;">
+      <thead>
         <tr>
           {% for label, _ in summary.fields %}
-          <th class="px-3 py-2" style="font-size:.72rem; text-transform:uppercase; letter-spacing:.4px; color:#8b949e; font-weight:600;">{{ label }}</th>
+          <th class="px-3 py-2">{{ label }}</th>
           {% endfor %}
         </tr>
       </thead>
       <tbody>
         <tr>
           {% for _, value in summary.fields %}
-          <td class="px-3 py-2 ioc-value" style="max-width:220px; overflow:hidden; text-overflow:ellipsis;" title="{{ value }}">
-            {% if value == '—' %}<span class="text-muted">—</span>{% else %}{{ value }}{% endif %}
+          <td class="px-3 py-2 ioc-value" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="{{ value }}">
+            {% if value == '—' %}<span style="color:var(--text-muted);">—</span>{% else %}{{ value }}{% endif %}
           </td>
           {% endfor %}
         </tr>
@@ -253,150 +274,161 @@
 </div>
 {% endif %}
 
-<!-- Relationship Graph -->
+{# ── Relationship graph ──────────────────────────────────────── #}
 <div class="card mb-4">
-  <div class="card-header d-flex align-items-center justify-content-between py-2">
+  <div class="card-header d-flex align-items-center justify-content-between">
     <div class="d-flex align-items-center gap-2">
-      <i class="bi bi-diagram-3 text-info"></i>
-      <strong class="small text-uppercase" style="letter-spacing:.5px">Cartographie des relations</strong>
+      <i class="bi bi-diagram-3" style="color:var(--accent);"></i>
+      <span class="section-label mb-0">Cartographie des relations</span>
     </div>
-    <button class="btn btn-sm btn-outline-secondary" id="graph-toggle">
+    <button class="btn btn-sm btn-outline-secondary" id="graph-toggle" style="font-size:.72rem;">
       <i class="bi bi-chevron-up" id="graph-icon"></i>
     </button>
   </div>
   <div id="graph-wrap">
-    <div id="ioc-graph" style="width:100%;height:{% if record.ioc_type == 'hash' %}560{% else %}430{% endif %}px;background:#0d1117;border-radius:0 0 6px 6px;"></div>
-    <div id="graph-legend" class="d-flex flex-wrap gap-3 px-3 py-2" style="background:#0d1117;border-top:1px solid #30363d;font-size:.8rem;color:#8b949e;border-radius:0 0 6px 6px;">
+    <div id="ioc-graph"
+         style="width:100%;height:{% if record.ioc_type == 'hash' %}560{% else %}430{% endif %}px;background:var(--bg-base);border-radius:0 0 10px 10px;">
+    </div>
+    <div id="graph-legend"
+         class="d-flex flex-wrap gap-3 px-3 py-2"
+         style="background:var(--bg-base);border-top:1px solid var(--border);font-size:.75rem;color:var(--text-muted);border-radius:0 0 10px 10px;">
       {% if record.ioc_type == 'hash' %}
-      <span><span style="display:inline-block;width:10px;height:10px;background:#da3633;transform:rotate(45deg);margin-right:6px;"></span>IOC central</span>
-      <span><span style="display:inline-block;width:22px;height:12px;background:#1e2a3a;border:1.5px solid #6741a8;border-radius:2px;margin-right:4px;"></span>Groupe parent (exécutants)</span>
-      <span><span style="display:inline-block;width:22px;height:12px;background:#1a2535;border:1.5px solid #1d6fa4;border-radius:2px;margin-right:4px;"></span>Groupe enfant / contacts réseau</span>
-      <span><span style="display:inline-block;width:10px;height:10px;background:#da3633;border-radius:50%;margin-right:4px;"></span>Fichier malveillant</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#e84040;transform:rotate(45deg);margin-right:6px;"></span>IOC central</span>
+      <span><span style="display:inline-block;width:20px;height:11px;background:#1e2a3a;border:1.5px solid #6741a8;border-radius:2px;margin-right:4px;"></span>Groupe parent</span>
+      <span><span style="display:inline-block;width:20px;height:11px;background:#1a2535;border:1.5px solid #1d6fa4;border-radius:2px;margin-right:4px;"></span>Groupe enfant</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#e84040;border-radius:50%;margin-right:4px;"></span>Fichier malveillant</span>
       <span><span style="display:inline-block;width:10px;height:10px;background:#1d6fa4;border-radius:50%;margin-right:4px;"></span>Fichier neutre</span>
       <span><span style="display:inline-block;width:10px;height:10px;background:#065f46;border-radius:50%;margin-right:4px;"></span>URL/Domaine contacté</span>
-      <span><span style="display:inline-block;width:10px;height:10px;background:#1e3a5f;border-radius:50%;margin-right:4px;"></span>IP contactée</span>
       <span><span style="display:inline-block;width:10px;height:10px;background:#164e63;border-radius:50%;margin-right:4px;"></span>Sandbox / YARA</span>
       {% else %}
-      <span><span style="display:inline-block;width:10px;height:10px;background:#da3633;border-radius:50%;margin-right:4px;"></span>Scanner AV détecteur</span>
-      <span><span style="display:inline-block;width:10px;height:10px;background:#c2410c;border-radius:50%;margin-right:4px;"></span>Malveillant/CVE/Blacklist</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#e84040;border-radius:50%;margin-right:4px;"></span>Scanner AV détecteur</span>
       <span><span style="display:inline-block;width:10px;height:10px;background:#6741a8;border-radius:50%;margin-right:4px;"></span>ASN/Réseau</span>
       <span><span style="display:inline-block;width:10px;height:10px;background:#d29922;border-radius:50%;margin-right:4px;"></span>Port ouvert</span>
-      <span><span style="display:inline-block;width:10px;height:10px;background:#2ea043;border-radius:50%;margin-right:4px;"></span>Hostname/Signataire</span>
-      <span><span style="display:inline-block;width:10px;height:10px;background:#1d6fa4;border-radius:50%;margin-right:4px;"></span>Géo/MX/Fichier</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#23a85c;border-radius:50%;margin-right:4px;"></span>Hostname/Signataire</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#1d6fa4;border-radius:50%;margin-right:4px;"></span>Géo/Fichier</span>
       <span><span style="display:inline-block;width:10px;height:10px;background:#164e63;border-radius:50%;margin-right:4px;"></span>Sandbox</span>
       {% endif %}
     </div>
   </div>
 </div>
 
-<!-- Source accordions -->
+{# ── Source data tabs ────────────────────────────────────────── #}
 {% if results %}
-<h6 class="text-secondary text-uppercase mb-3" style="letter-spacing: 0.5px; font-size: 0.8rem;">
-  <i class="bi bi-layers me-1"></i>Données brutes par source
-</h6>
-<div class="accordion" id="srcAccordion">
-  {% for res in results %}
-  <div class="accordion-item mb-2" style="border-radius: 6px; overflow: hidden;">
-    <h2 class="accordion-header">
-      <button class="accordion-button {% if not loop.first %}collapsed{% endif %}"
-              type="button" data-bs-toggle="collapse"
-              data-bs-target="#src{{ loop.index }}">
-        {% if res['error'] %}
-        <i class="bi bi-x-circle text-danger me-2"></i>
-        {% else %}
-        <i class="bi bi-check-circle text-success me-2"></i>
-        {% endif %}
-        <strong>{{ res['source'] }}</strong>
-        <span class="badge {% if res['error'] %}bg-danger{% else %}bg-success{% endif %} ms-2">
-          {% if res['error'] %}erreur{% else %}OK{% endif %}
-        </span>
-      </button>
-    </h2>
-    <div id="src{{ loop.index }}"
-         class="accordion-collapse collapse {% if loop.first %}show{% endif %}">
-      <div class="accordion-body py-2">
-        {% if res['error'] %}
-        <p class="text-danger mb-0">
-          <i class="bi bi-exclamation-triangle me-1"></i>{{ res['error'] }}
-        </p>
-        {% else %}
-        <table class="table table-sm mb-0" style="font-size: 0.875rem;">
-          <tbody>
-            {% for k, v in res['data'].items() %}
-            {% if v is not none and v != '' and v != [] and v != {} %}
-            <tr>
-              <td class="text-muted" style="width: 30%; white-space: nowrap;">
-                {% if k == 'malicious_vendors' %}<span class="text-danger fw-semibold">Scanners détecteurs</span>{% else %}{{ k }}{% endif %}
-              </td>
-              <td>
-                {% if k == 'malicious_vendors' %}
-                  {% for vendor in v %}
-                    <span class="badge bg-danger me-1 mb-1" style="font-size:0.75rem;">{{ vendor }}</span>
-                  {% endfor %}
-                {% else %}
-                  {{ render_val(v) }}
-                {% endif %}
-              </td>
-            </tr>
+<div class="mb-4">
+  <div class="section-label"><i class="bi bi-layers me-1"></i>Données brutes par source</div>
+  <div class="card">
+    <div class="card-header p-0">
+      <ul class="nav nav-tabs border-0" id="srcTabs" role="tablist">
+        {% for res in results %}
+        <li class="nav-item" role="presentation">
+          <button class="nav-link {% if loop.first %}active{% endif %}"
+                  id="tab-btn-{{ loop.index }}"
+                  data-bs-toggle="tab"
+                  data-bs-target="#tab-{{ loop.index }}"
+                  type="button" role="tab">
+            {% if res['error'] %}
+            <i class="bi bi-x-circle" style="color:var(--danger);font-size:.7rem;margin-right:4px;"></i>
+            {% else %}
+            <i class="bi bi-check-circle" style="color:var(--success);font-size:.7rem;margin-right:4px;"></i>
             {% endif %}
-            {% endfor %}
-          </tbody>
-        </table>
-        {% endif %}
-      </div>
+            {{ res['source'] }}
+          </button>
+        </li>
+        {% endfor %}
+      </ul>
     </div>
-  </div>
-  {% endfor %}
-</div>
-{% endif %}
-
-<!-- Comments Section -->
-{% set all_comments = record.comments.all() %}
-<div class="card mb-4">
-  <div class="card-header d-flex align-items-center gap-2 py-2">
-    <i class="bi bi-chat-left-text text-info"></i>
-    <strong class="small text-uppercase" style="letter-spacing:.5px">Commentaires des analystes</strong>
-    <span class="badge bg-secondary ms-auto">{{ all_comments | length }}</span>
-  </div>
-  <div class="card-body">
-    {% if all_comments %}
-    <div class="mb-3">
-      {% for comment in all_comments %}
-      <div class="mb-3 p-3 rounded" style="background:#0d1117; border-left: 3px solid #30363d;">
-        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
-          <i class="bi bi-person-circle text-secondary"></i>
-          <span class="fw-semibold small text-info">{{ comment.author }}</span>
-          <span class="text-muted small">{{ comment.created_at.strftime('%d/%m/%Y à %H:%M UTC') }}</span>
-          {% if record.enriched_at > comment.enriched_at_snapshot %}
-          <span class="badge bg-warning text-dark ms-auto" title="Les données de cet IOC ont changé depuis ce commentaire">
-            <i class="bi bi-exclamation-triangle me-1"></i>IOC ré-enrichi depuis ce commentaire
-          </span>
-          {% endif %}
+    <div class="tab-content card-body p-0" id="srcTabContent">
+      {% for res in results %}
+      <div class="tab-pane fade {% if loop.first %}show active{% endif %}"
+           id="tab-{{ loop.index }}" role="tabpanel">
+        {% if res['error'] %}
+        <div class="p-3" style="color:var(--danger);">
+          <i class="bi bi-exclamation-triangle me-1"></i>{{ res['error'] }}
         </div>
-        <p class="mb-0 small" style="white-space: pre-wrap; color: #c9d1d9;">{{ comment.content }}</p>
+        {% else %}
+        <div style="overflow-x:auto;">
+          <table class="table table-sm mb-0" style="font-size:.82rem;">
+            <tbody>
+              {% for k, v in res['data'].items() %}
+              {% if v is not none and v != '' and v != [] and v != {} %}
+              <tr>
+                <td style="width:28%;white-space:nowrap;color:var(--text-muted);padding:.5rem .75rem;vertical-align:top;">
+                  {% if k == 'malicious_vendors' %}
+                  <span style="color:var(--danger);font-weight:600;">Scanners détecteurs</span>
+                  {% else %}{{ k }}{% endif %}
+                </td>
+                <td style="padding:.5rem .75rem;">
+                  {% if k == 'malicious_vendors' %}
+                    {% for vendor in v %}
+                      <span class="badge me-1 mb-1"
+                            style="background:rgba(232,64,64,.2);color:#f07070;border:1px solid rgba(232,64,64,.3);font-size:.72rem;">
+                        {{ vendor }}
+                      </span>
+                    {% endfor %}
+                  {% else %}
+                    {{ render_val(v) }}
+                  {% endif %}
+                </td>
+              </tr>
+              {% endif %}
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
       </div>
       {% endfor %}
     </div>
-    {% else %}
-    <p class="text-muted small mb-3">Aucun commentaire pour cet IOC.</p>
-    {% endif %}
-
-    {% if current_user.is_authenticated and current_user.is_approved %}
-    <form method="post" action="{{ url_for('ioc.add_comment', value=record.value) }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div class="mb-2">
-        <textarea name="content" class="form-control form-control-sm" rows="3"
-                  placeholder="Partagez votre analyse, accord ou désaccord avec l'évaluation..."
-                  required
-                  style="background:#0d1117; border-color:#30363d; color:#c9d1d9; resize:vertical;"></textarea>
-      </div>
-      <button type="submit" class="btn btn-sm btn-outline-info">
-        <i class="bi bi-send me-1"></i>Ajouter un commentaire
-      </button>
-    </form>
-    {% endif %}
   </div>
 </div>
+{% endif %}
+
+{# ── Comments ────────────────────────────────────────────────── #}
+{% set all_comments = record.comments.all() %}
+<div class="mb-4">
+  <div class="section-label">
+    <i class="bi bi-chat-left-text me-1"></i>Commentaires des analystes
+    <span style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:.05rem .45rem;font-size:.65rem;margin-left:.4rem;">
+      {{ all_comments | length }}
+    </span>
+  </div>
+
+  <div class="d-flex flex-column gap-2 mb-3">
+    {% for comment in all_comments %}
+    <div class="comment-item">
+      <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+        <div class="comment-avatar">{{ comment.author[0].upper() }}</div>
+        <span style="font-weight:600;font-size:.82rem;color:var(--text-primary);">{{ comment.author }}</span>
+        <span style="font-size:.72rem;color:var(--text-muted);">
+          {{ comment.created_at.strftime('%d/%m/%Y à %H:%M UTC') }}
+        </span>
+        {% if record.enriched_at > comment.enriched_at_snapshot %}
+        <span class="stale-badge ms-auto" title="Les données de cet IOC ont changé depuis ce commentaire">
+          <i class="bi bi-exclamation-triangle me-1"></i>IOC ré-enrichi depuis
+        </span>
+        {% endif %}
+      </div>
+      <p class="mb-0" style="font-size:.85rem;white-space:pre-wrap;color:var(--text-primary);">{{ comment.content }}</p>
+    </div>
+    {% else %}
+    <p style="color:var(--text-muted);font-size:.82rem;">Aucun commentaire pour cet IOC.</p>
+    {% endfor %}
+  </div>
+
+  {% if current_user.is_authenticated and current_user.is_approved %}
+  <form method="post" action="{{ url_for('ioc.add_comment', value=record.value) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="mb-2">
+      <textarea name="content" class="form-control" rows="3"
+                placeholder="Partagez votre analyse…" required></textarea>
+    </div>
+    <button type="submit" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-send me-1"></i>Ajouter un commentaire
+    </button>
+  </form>
+  {% endif %}
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -417,7 +449,7 @@
 
   document.getElementById('reenrich-form')?.addEventListener('submit', function() {
     const btn = document.getElementById('reenrich-btn');
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Re-enrichissement...';
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Re-enrichissement…';
     btn.disabled = true;
   });
 
@@ -441,18 +473,13 @@
     let nid = 1;
     const nodesArr = [], edgesArr = [];
 
-    function newNode(props) {
-      const id = nid++;
-      nodesArr.push({ id, ...props });
-      return id;
-    }
+    function newNode(props) { const id = nid++; nodesArr.push({ id, ...props }); return id; }
     function addEdge(from, to, label) {
       edgesArr.push({ from, to, label: label || '', arrows: 'to',
-        font: { size: 9, align: 'middle', strokeWidth: 0, color: '#8b949e' } });
+        font: { size: 9, align: 'middle', strokeWidth: 0, color: '#7a88ae' } });
     }
     function trunc(s, n) { return s && s.length > n ? s.substr(0, n) + '…' : (s || ''); }
 
-    // Pre-read VT data so center node can use meaningful_name
     let vtData = null, relationships = {};
     if (isHash) {
       for (const r of RESULTS) {
@@ -462,7 +489,6 @@
       }
     }
 
-    // Center node (id = 0)
     nodesArr.push({
       id: 0,
       label: isHash ? trunc((vtData && vtData.meaningful_name) || IOC_VALUE, 20) : trunc(IOC_VALUE, 24),
@@ -472,7 +498,6 @@
       font: { size: 14, bold: true },
     });
 
-    // ── HASH: hierarchical LR tree ──────────────────────────────────────────
     if (isHash) {
       function mkBox(label, title, grp) {
         return newNode({ label, title, group: grp, level: 3, shape: 'box',
@@ -480,7 +505,6 @@
       }
       function mkItem(label, title, grp) { return newNode({ label, title, group: grp, level: 4 }); }
 
-      // level[0]=category level, level[1]=item level
       const REL_META = {
         execution_parents:    { label: 'Exec. Parents',   group: 'cat_parent', itemGroup: 'file',        levels: [1, 0],  isParent: true },
         pe_resource_parents:  { label: 'PE Res. Parents', group: 'cat_parent', itemGroup: 'file',        levels: [1, 0],  isParent: true },
@@ -495,42 +519,24 @@
       for (const [relType, meta] of Object.entries(REL_META)) {
         const rel = relationships[relType];
         if (!rel || rel.total === 0) continue;
-
         const catId = newNode({
-          label: meta.label + '\n(' + rel.total + ')',
-          title: rel.total + ' total — ' + relType,
-          group: meta.group,
-          level: meta.levels[0],
-          shape: 'box',
+          label: meta.label + '\n(' + rel.total + ')', title: rel.total + ' total — ' + relType,
+          group: meta.group, level: meta.levels[0], shape: 'box',
           margin: { top: 6, bottom: 6, left: 10, right: 10 },
         });
-
-        if (meta.isParent) {
-          addEdge(catId, 0);        // parent category → hash
-        } else {
-          addEdge(0, catId);        // hash → child category
-        }
-
+        if (meta.isParent) addEdge(catId, 0); else addEdge(0, catId);
         for (const item of (rel.items || [])) {
           const isMal = item.malicious > 0;
           const itemId = newNode({
             label: trunc(item.name, 22),
-            title: item.name + (item.type ? '\nType: ' + item.type : '') +
-                   '\n' + item.malicious + '/' + item.total + ' détections',
-            group: isMal ? 'file_mal' : meta.itemGroup,
-            level: meta.levels[1],
+            title: item.name + (item.type ? '\nType: ' + item.type : '') + '\n' + item.malicious + '/' + item.total + ' détections',
+            group: isMal ? 'file_mal' : meta.itemGroup, level: meta.levels[1],
           });
-          if (meta.isParent) {
-            addEdge(itemId, catId); // item → parent category
-          } else {
-            addEdge(catId, itemId); // child category → item
-          }
+          if (meta.isParent) addEdge(itemId, catId); else addEdge(catId, itemId);
         }
       }
 
-      // Static VT data — always shown
       if (vtData) {
-        // File names + type
         const names = vtData.names || [];
         const mName = vtData.meaningful_name || '';
         const fType = vtData.type_description || vtData.magic || '';
@@ -544,7 +550,6 @@
           if (fType) addEdge(catId, mkItem(fType, 'Type: '+fType, 'tag'));
         }
 
-        // Signature — uses "signers" when "subject" is absent (fixes empty label bug)
         const sig = vtData.signature_info;
         if (sig) {
           const sub = sig.subject || '';
@@ -563,7 +568,6 @@
           }
         }
 
-        // PE metadata
         const peDate = vtData.pe_compilation_date;
         const peHash = vtData.pe_imphash;
         const hiEntr = (vtData.pe_sections||[]).filter(s=>(s.entropy||0)>7.0);
@@ -575,7 +579,6 @@
           hiEntr.slice(0,3).forEach(s => addEdge(catId, mkItem('⚠ '+s.name+' (H>7)', 'Entropie élevée — packed?', 'threat')));
         }
 
-        // ExifTool
         const exif = vtData.exiftool;
         if (exif) {
           const pairs = [
@@ -591,7 +594,6 @@
           }
         }
 
-        // Threat classification
         const tLabel = vtData.popular_threat_label;
         const tNames = vtData.threat_names||[];
         if (tLabel||tNames.length) {
@@ -602,7 +604,6 @@
           (vtData.threat_categories||[]).slice(0,2).forEach(c => addEdge(catId, mkItem(trunc(c,22),'Catégorie: '+c,'tag')));
         }
 
-        // Detection vendors
         const malVendors = vtData.malicious_vendors||[];
         if (malVendors.length) {
           const catId = mkBox('Détections\n('+malVendors.length+'/'+vtData.total_engines+')', 'AV ayant détecté le fichier', 'cat_child');
@@ -610,7 +611,6 @@
           malVendors.slice(0,6).forEach(v => addEdge(catId, mkItem(trunc(v,20), 'Détecté: '+v, 'file_mal')));
         }
 
-        // Sandbox — shows malicious/suspicious OR clean summary
         const sbAll = vtData.sandbox_verdicts||[];
         const sbMal  = sbAll.filter(s=>s.category==='malicious'||s.category==='suspicious');
         const sbHarm = sbAll.filter(s=>s.category==='harmless');
@@ -627,7 +627,6 @@
           });
         }
 
-        // YARA
         const yara = vtData.yara_rules||[];
         if (yara.length) {
           const catId = mkBox('YARA ('+yara.length+')', 'Règles YARA matchées', 'cat_child');
@@ -636,7 +635,6 @@
             (y.description?y.description+'\n':'')+(y.source?'Source: '+y.source:''), 'tag')));
         }
 
-        // Crowdsourced context
         const ctx = vtData.crowdsourced_context||[];
         if (ctx.length) {
           const catId = mkBox('Contexte ('+ctx.length+')', 'Rapports crowdsourcés (Talos, etc.)', 'cat_child');
@@ -649,7 +647,6 @@
         }
       }
 
-    // ── IP / DOMAIN: force-directed ─────────────────────────────────────────
     } else {
       for (const r of RESULTS) {
         if (r.error || !r.data) continue;
@@ -659,7 +656,6 @@
           if (d.country_name) addEdge(0, newNode({ label: d.country_name, title: 'Pays — AbuseIPDB', group: 'geo' }), 'pays');
           if (d.isp)          addEdge(0, newNode({ label: trunc(d.isp, 22), title: 'ISP — AbuseIPDB', group: 'network' }), 'ISP');
         }
-
         if (r.source === 'VirusTotal') {
           if (d.as_owner) addEdge(0, newNode({ label: trunc(d.as_owner, 22), title: `AS${d.asn || ''} — ${d.as_owner}`, group: 'network' }), `AS${d.asn || ''}`);
           (d.tags || []).slice(0, 4).forEach(t => addEdge(0, newNode({ label: '#' + t, title: 'Tag VirusTotal', group: 'tag' }), 'tag'));
@@ -688,7 +684,6 @@
             label: trunc(c.title||c.source||'',22),
             title: (c.source||'')+(c.title?'\n'+c.title:'')+(c.severity?'\nSévérité: '+c.severity:''),
             group: ['high','critical'].includes(c.severity)?'threat':'tag' }), 'context'));
-
           const malVendors = d.malicious_vendors || [];
           if (malVendors.length) {
             const hubId = newNode({
@@ -698,13 +693,10 @@
             });
             addEdge(0, hubId, 'détecté');
             malVendors.slice(0, 8).forEach(v => addEdge(hubId, newNode({
-              label: trunc(v, 20),
-              title: 'Détecté par : ' + v,
-              group: 'file_mal',
+              label: trunc(v, 20), title: 'Détecté par : ' + v, group: 'file_mal',
             })));
           }
         }
-
         if (r.source === 'ip-api.com') {
           if (d.country) {
             const geo = d.city ? d.city + ', ' + d.country : d.country;
@@ -720,21 +712,9 @@
           if (d.isp && d.isp !== d.as_name) {
             addEdge(0, newNode({ label: trunc(d.isp, 22), title: 'ISP: ' + d.isp, group: 'network' }), 'ISP');
           }
-          if (d.network_type) {
-            addEdge(0, newNode({ label: d.network_type, title: 'Type de réseau', group: 'tag' }), 'type');
-          }
-          if (d.reverse_dns) {
-            addEdge(0, newNode({ label: trunc(d.reverse_dns, 22), title: 'Reverse DNS: ' + d.reverse_dns, group: 'hostname' }), 'PTR');
-          }
+          if (d.network_type) addEdge(0, newNode({ label: d.network_type, title: 'Type de réseau', group: 'tag' }), 'type');
+          if (d.reverse_dns)  addEdge(0, newNode({ label: trunc(d.reverse_dns, 22), title: 'Reverse DNS: ' + d.reverse_dns, group: 'hostname' }), 'PTR');
         }
-
-        if (r.source === 'MXToolBox') {
-          (d.blacklisted_on || []).slice(0, 5).forEach(bl => addEdge(0, newNode({ label: '🚫 ' + bl, title: 'Blacklisté sur ' + bl, group: 'blacklist' }), 'blacklisté'));
-          (d.mx_records || []).slice(0, 4).forEach(mx => {
-            addEdge(0, newNode({ label: '📧 ' + trunc(mx.domain || '', 20), title: 'MX prio ' + mx.pref + ' — IP: ' + (mx.ip || '?'), group: 'mx' }), 'serveur MX');
-          });
-        }
-
         if (r.source === 'urlscan.io') {
           (d.recent_scans || []).slice(0, 3).forEach(sc => {
             if (sc.domain && sc.domain !== IOC_VALUE) {
@@ -747,71 +727,62 @@
 
     if (nodesArr.length <= 1) {
       document.getElementById('ioc-graph').innerHTML =
-        '<div class="text-center text-muted py-5" style="padding-top:160px!important">' +
-        '<i class="bi bi-diagram-3 display-5 d-block mb-2"></i>Pas assez de données pour construire le graphe.</div>';
+        '<div class="text-center py-5" style="padding-top:160px!important;color:var(--text-muted);">' +
+        '<i class="bi bi-diagram-3" style="font-size:2.5rem;display:block;margin-bottom:.75rem;"></i>' +
+        'Pas assez de données pour construire le graphe.</div>';
       return;
     }
 
     const GROUPS = {
-      ioc_mal:     { color: { background: '#da3633', border: '#ff6b6b' }, shape: 'diamond', size: 28, font: { bold: true, color: '#fff' } },
-      ioc_ok:      { color: { background: '#2ea043', border: '#5cb85c' }, shape: 'diamond', size: 28, font: { bold: true, color: '#fff' } },
+      ioc_mal:     { color: { background: '#e84040', border: '#ff6b6b' }, shape: 'diamond', size: 28, font: { bold: true, color: '#fff' } },
+      ioc_ok:      { color: { background: '#23a85c', border: '#5cb85c' }, shape: 'diamond', size: 28, font: { bold: true, color: '#fff' } },
       cat_parent:  { color: { background: '#1e2a3a', border: '#6741a8' }, shape: 'box', font: { color: '#9b72cf', size: 11 } },
       cat_child:   { color: { background: '#1a2535', border: '#1d6fa4' }, shape: 'box', font: { color: '#60a5fa', size: 11 } },
       geo:         { color: { background: '#1d6fa4', border: '#4facde' }, shape: 'dot', size: 16 },
       network:     { color: { background: '#6741a8', border: '#9b72cf' }, shape: 'dot', size: 16 },
       port:        { color: { background: '#d29922', border: '#f0c14b' }, shape: 'triangleDown', size: 14 },
       cve:         { color: { background: '#b91c1c', border: '#ef4444' }, shape: 'square', size: 14 },
-      file_mal:    { color: { background: '#da3633', border: '#f87171' }, shape: 'dot', size: 12 },
+      file_mal:    { color: { background: '#e84040', border: '#f87171' }, shape: 'dot', size: 12 },
       file:        { color: { background: '#1d6fa4', border: '#60a5fa' }, shape: 'dot', size: 12 },
       url_node:    { color: { background: '#065f46', border: '#34d399' }, shape: 'dot', size: 12 },
       domain_node: { color: { background: '#581c87', border: '#a855f7' }, shape: 'dot', size: 12 },
       ip_node:     { color: { background: '#1e3a5f', border: '#3b82f6' }, shape: 'dot', size: 12 },
       blacklist:   { color: { background: '#7f1d1d', border: '#dc2626' }, shape: 'hexagon', size: 15 },
       threat:      { color: { background: '#c2410c', border: '#fb923c' }, shape: 'dot', size: 14 },
-      tag:         { color: { background: '#374151', border: '#6b7280' }, shape: 'dot', size: 11 },
+      tag:         { color: { background: '#252d48', border: '#4b5878' }, shape: 'dot', size: 11 },
       hostname:    { color: { background: '#065f46', border: '#10b981' }, shape: 'dot', size: 14 },
       subdomain:   { color: { background: '#581c87', border: '#a855f7' }, shape: 'dot', size: 14 },
       mx:          { color: { background: '#1e40af', border: '#60a5fa' }, shape: 'dot', size: 14 },
       scan_mal:    { color: { background: '#b91c1c', border: '#ef4444' }, shape: 'dot', size: 13 },
-      scan:        { color: { background: '#374151', border: '#9ca3af' }, shape: 'dot', size: 13 },
+      scan:        { color: { background: '#252d48', border: '#7a88ae' }, shape: 'dot', size: 13 },
       signer:      { color: { background: '#064e3b', border: '#34d399' }, shape: 'dot', size: 14 },
       sandbox:     { color: { background: '#164e63', border: '#22d3ee' }, shape: 'dot', size: 13 },
+    };
+
+    const commonEdge = {
+      font: { color: '#7a88ae', size: 9, strokeWidth: 0 },
+      color: { color: '#252d48', highlight: '#c9a96e' },
+      arrows: { to: { enabled: true, scaleFactor: 0.6 } },
     };
 
     const hashOpts = {
       layout: {
         hierarchical: {
-          enabled: true,
-          direction: 'LR',
-          sortMethod: 'directed',
-          levelSeparation: 185,
-          nodeSpacing: 52,
-          treeSpacing: 90,
-          blockShifting: true,
-          edgeMinimization: true,
-          parentCentralization: true,
+          enabled: true, direction: 'LR', sortMethod: 'directed',
+          levelSeparation: 185, nodeSpacing: 52, treeSpacing: 90,
+          blockShifting: true, edgeMinimization: true, parentCentralization: true,
         }
       },
       physics: { enabled: false },
-      nodes: { font: { color: '#c9d1d9', size: 11 }, borderWidth: 2, borderWidthSelected: 3 },
-      edges: {
-        font: { color: '#8b949e', size: 9, strokeWidth: 0 },
-        color: { color: '#30363d', highlight: '#58a6ff' },
-        smooth: { type: 'cubicBezier', forceDirection: 'horizontal', roundness: 0.4 },
-        arrows: { to: { enabled: true, scaleFactor: 0.6 } },
-      },
+      nodes: { font: { color: '#dde1f0', size: 11 }, borderWidth: 2, borderWidthSelected: 3 },
+      edges: { ...commonEdge, smooth: { type: 'cubicBezier', forceDirection: 'horizontal', roundness: 0.4 } },
       groups: GROUPS,
       interaction: { hover: true, tooltipDelay: 80, zoomView: true, dragView: true },
     };
 
     const forceOpts = {
-      nodes: { font: { color: '#c9d1d9', size: 12 }, borderWidth: 2 },
-      edges: {
-        font: { color: '#8b949e', size: 10, align: 'middle', strokeWidth: 0 },
-        color: { color: '#30363d', highlight: '#58a6ff', hover: '#58a6ff' },
-        smooth: { type: 'continuous', roundness: 0.3 },
-        length: 135,
-      },
+      nodes: { font: { color: '#dde1f0', size: 12 }, borderWidth: 2 },
+      edges: { ...commonEdge, smooth: { type: 'continuous', roundness: 0.3 }, length: 135 },
       groups: GROUPS,
       physics: {
         barnesHut: { gravitationalConstant: -4500, centralGravity: 0.35, springLength: 135, springConstant: 0.05, damping: 0.4 },
@@ -827,7 +798,6 @@
     );
     if (isHash) {
       setTimeout(() => network.fit({ animation: { duration: 400, easingFunction: 'easeInOutQuad' } }), 80);
-      // Click on a contacted IP/domain node → navigate to its detail page
       network.on('click', params => {
         if (params.nodes.length === 1) {
           const nd = nodesArr.find(n => n.id === params.nodes[0]);

@@ -10,10 +10,13 @@ _TIMEOUT = 15.0
 def enrich(ioc: IOC, keys: dict | None = None) -> EnrichmentResult:
     if ioc.type not in ("ip", "domain"):
         return EnrichmentResult(source="URLhaus", ioc=ioc, error="IP/domain only")
+    api_key = (keys or {}).get("ABUSE_CH_API_KEY") or __import__("os").getenv("ABUSE_CH_API_KEY", "")
+    headers = {"Auth-Key": api_key} if api_key else {}
     try:
         resp = httpx.post(
             f"{_BASE_URL}/host/",
             data={"host": ioc.value},
+            headers=headers,
             timeout=_TIMEOUT,
         )
         resp.raise_for_status()
