@@ -217,6 +217,19 @@
       {% endfor %}
     </select>
   </form>
+  <span tabindex="0" role="button"
+        data-bs-toggle="popover" data-bs-trigger="focus" data-bs-placement="bottom" data-bs-html="true"
+        data-bs-title="Traffic Light Protocol (TLP)"
+        data-bs-content="
+          <div style='font-size:.75rem;line-height:1.6;'>
+            <div class='mb-1'><span style='color:#fff;background:#cc0033;padding:.1rem .4rem;border-radius:3px;font-weight:600;'>RED</span>&nbsp; Confidentiel — destinataires directs uniquement, ne pas diffuser par écrit.</div>
+            <div class='mb-1'><span style='color:#000;background:#ffc000;padding:.1rem .4rem;border-radius:3px;font-weight:600;'>AMBER</span>&nbsp; Restreint — partager en interne sur base <em>need-to-know</em> uniquement.</div>
+            <div class='mb-1'><span style='color:#fff;background:#33aa00;padding:.1rem .4rem;border-radius:3px;font-weight:600;'>GREEN</span>&nbsp; Communauté — équipe SOC et partenaires CERT, pas de publication publique.</div>
+            <div><span style='color:#333;background:#e8e8e8;padding:.1rem .4rem;border-radius:3px;font-weight:600;'>WHITE</span>&nbsp; Public — aucune restriction, partage libre.</div>
+          </div>"
+        style="cursor:pointer;font-size:.72rem;color:var(--text-muted);padding:.1rem .3rem;
+               border:1px solid var(--border-subtle);border-radius:50%;line-height:1;
+               display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;">?</span>
   <form method="post" action="{{ url_for('ioc.set_tags', value=record.value) }}" class="d-inline d-flex gap-1">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="text" name="tags" class="form-control form-control-sm"
@@ -226,6 +239,19 @@
       <i class="bi bi-check-lg"></i>
     </button>
   </form>
+  <span tabindex="0" role="button"
+        data-bs-toggle="popover" data-bs-trigger="focus" data-bs-placement="bottom" data-bs-html="true"
+        data-bs-title="Tags"
+        data-bs-content="
+          <div style='font-size:.75rem;line-height:1.6;'>
+            Étiquettes libres pour organiser et retrouver vos IOCs.<br>
+            Séparés par des <strong>virgules</strong>. Exemples :<br>
+            <code>ransomware</code>, <code>apt29</code>, <code>phishing-2024</code>, <code>incident-42</code><br><br>
+            Les tags sont <strong>filtrables</strong> depuis la page d'accueil.
+          </div>"
+        style="cursor:pointer;font-size:.72rem;color:var(--text-muted);padding:.1rem .3rem;
+               border:1px solid var(--border-subtle);border-radius:50%;line-height:1;
+               display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;">?</span>
   {% endif %}
 </div>
 
@@ -807,5 +833,10 @@
       });
     }
   })();
+
+  // Init Bootstrap popovers
+  document.querySelectorAll('[data-bs-toggle="popover"]').forEach(el => {
+    new bootstrap.Popover(el, { sanitize: false });
+  });
 </script>
 {% endblock %}
