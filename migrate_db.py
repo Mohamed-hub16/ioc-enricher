@@ -73,20 +73,31 @@ def main():
                 "SELECT id, raw_results FROM ioc_records WHERE raw_results IS NOT NULL"
             )).fetchall()
 
+            import re as _re
             _GENERIC_SIGNERS = frozenset({
                 "microsoft windows", "microsoft corporation", "windows", "verisign",
                 "thawte", "digicert", "comodo", "sectigo", "globalsign", "entrust",
                 "symantec", "certum", "ssl.com", "godaddy", "amazon",
             })
             _INFRA_TAGS = frozenset({"tor", "vpn", "proxy", "cdn", "anonymizer", "i2p", "bulletproof"})
-            _CORP_SUFFIXES = (" gmbh", " inc.", " inc", " llc", " ltd.", " ltd",
-                              " corp.", " corp", " corporation", " software", " s.a.", " s.r.o.")
+            _GENERIC_FILENAMES = frozenset({
+                "setup", "installer", "install", "update", "updater", "client", "app",
+                "application", "service", "agent", "server", "host", "launcher", "loader",
+                "helper", "patch", "tool", "main", "x64", "x86", "client64", "client32",
+            })
+            _CA_INDICATORS = ("certificate", "signing ca", "trusted root", "root ca",
+                              "intermediate", " ca ", " ca\t")
 
-            def _clean_company(n: str) -> str:
-                for sfx in _CORP_SUFFIXES:
-                    if n.lower().endswith(sfx):
-                        return n[: len(n) - len(sfx)].strip()
-                return n
+            def _fname_to_label(fname: str) -> str | None:
+                if not fname: return None
+                name = _re.sub(r'\.[a-zA-Z]{2,4}$', '', fname.strip())
+                name = _re.sub(r'[-_\s]+v?\d[\d.\-]*$', '', name, flags=_re.IGNORECASE).strip()
+                name = _re.sub(r'[-_\s]*\(\d+\)$', '', name).strip()
+                name = _re.sub(r'[-_\s]+\d{4}[-T\d.]+.*$', '', name).strip()
+                name = name.replace('-', ' ').replace('_', ' ').strip()
+                if name and name.lower() not in _GENERIC_FILENAMES and len(name) > 2:
+                    return name[0].upper() + name[1:]
+                return None
 
             def _pick_family(results: list) -> str | None:
                 vt = next((r.get("data") for r in results
@@ -109,20 +120,26 @@ def main():
                     product = (exif.get("ProductName") or exif.get("InternalName") or "").strip()
                     if product and len(product) > 2:
                         return product
+                    label = _fname_to_label(vt.get("meaningful_name") or "")
+                    if not label:
+                        for fname in (vt.get("names") or []):
+                            label = _fname_to_label(fname)
+                            if label: break
+                    if label: return label
                     sig = vt.get("signature_info") or {}
-                    subject = (sig.get("subject") or "").strip()
-                    for part in subject.split(","):
-                        part = part.strip()
-                        if part.startswith("O="):
-                            name = _clean_company(part[2:].strip())
-                            if name and len(name) > 3 and name.lower() not in _GENERIC_SIGNERS:
-                                return name
-                            break
-                    signers = (sig.get("signers") or "").strip()
-                    if signers:
-                        name = _clean_company(signers)
-                        if name and len(name) > 3 and name.lower() not in _GENERIC_SIGNERS:
-                            return name
+                    for signer in (sig.get("signers") or "").split(";"):
+                        signer = signer.strip()
+                        if not signer: continue
+                        lower = signer.lower()
+                        if any(ind in lower for ind in _CA_INDICATORS): continue
+                        if lower in _GENERIC_SIGNERS: continue
+                        for sfx in (" gmbh", " inc.", " inc", " llc", " ltd.", " ltd",
+                                    " corp.", " corp", " corporation", " software", " s.a."):
+                            if lower.endswith(sfx):
+                                signer = signer[: len(signer) - len(sfx)].strip()
+                                break
+                        if signer and len(signer) > 3:
+                            return signer
                     for tag in (vt.get("tags") or []):
                         if tag and tag.lower() in _INFRA_TAGS:
                             return tag.lower()
