@@ -244,3 +244,67 @@ def patch_enrich():
         "info",
     )
     return redirect(url_for("admin.users"))
+
+
+def _do_regenerate_paragraphs(app) -> None:
+    """Regenerate Groq paragraphs for all IOCs from stored raw_results. No API calls."""
+    import os as _os
+    from src.models import IOC, EnrichmentResult
+    from src.synthesis import groq_synthesizer
+
+    with app.app_context():
+        groq_key = _os.getenv("GROQ_API_KEY", "")
+        if not groq_key:
+            log.error("[regen_paragraphs] GROQ_API_KEY not set — aborting")
+            return
+
+        records = IOCRecord.query.all()
+        log.info("[regen_paragraphs] processing %d record(s)…", len(records))
+        updated = 0
+
+        for record in records:
+            raw = record.get_results()
+            if not raw:
+                continue
+
+            ioc_obj = IOC(value=record.value, type=record.ioc_type)
+            results = [
+                EnrichmentResult(
+                    source=r["source"],
+                    ioc=ioc_obj,
+                    data=r.get("data") or {},
+                    error=r.get("error"),
+                )
+                for r in raw
+            ]
+
+            paragraph = groq_synthesizer.synthesize(
+                results, threat_score=record.threat_score or 0, groq_key=groq_key
+            )
+            if paragraph:
+                record.paragraph = paragraph
+                db.session.commit()
+                updated += 1
+                log.info("[regen_paragraphs] %s — OK", record.value)
+            else:
+                log.warning("[regen_paragraphs] %s — no paragraph returned", record.value)
+
+            time.sleep(1.5)  # respect Groq free-tier rate limit
+
+        log.info("[regen_paragraphs] done — %d/%d paragraph(s) regenerated", updated, len(records))
+
+
+@admin_bp.route("/regenerate-paragraphs", methods=["POST"])
+@login_required
+def regenerate_paragraphs():
+    """Regenerate all Groq paragraphs in background from existing raw_results."""
+    _require_admin()
+    app = current_app._get_current_object()
+    t = threading.Thread(target=_do_regenerate_paragraphs, args=(app,), daemon=True)
+    t.start()
+    flash(
+        "Régénération des paragraphes LLM lancée en arrière-plan — "
+        "progression visible dans les logs serveur.",
+        "info",
+    )
+    return redirect(url_for("admin.users"))
