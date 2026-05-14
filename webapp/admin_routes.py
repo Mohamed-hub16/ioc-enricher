@@ -65,6 +65,79 @@ def revoke(user_id: int):
 
 # ── Maintenance ────────────────────────────────────────────────────────────
 
+@admin_bp.route("/migrate-db", methods=["POST"])
+@login_required
+def migrate_db():
+    """Add missing columns to ioc_records and backfill malware_family / verdict."""
+    _require_admin()
+    from sqlalchemy import text
+    import json as _json
+
+    new_columns = [
+        ("verdict",               "VARCHAR(20)"),
+        ("malware_family",        "VARCHAR(120)"),
+        ("tlp",                   "VARCHAR(10)  DEFAULT 'WHITE'"),
+        ("tags_json",             "TEXT"),
+        ("score_breakdown_json",  "TEXT"),
+    ]
+
+    added = []
+    with db.engine.connect() as conn:
+        existing = {row[1] for row in conn.execute(text("PRAGMA table_info(ioc_records)")).fetchall()}
+
+        for name, defn in new_columns:
+            if name not in existing:
+                conn.execute(text(f"ALTER TABLE ioc_records ADD COLUMN {name} {defn}"))
+                conn.commit()
+                added.append(name)
+
+        conn.execute(text(
+            "UPDATE ioc_records SET verdict='malicious' WHERE verdict IS NULL AND threat_score > 0"
+        ))
+        conn.execute(text(
+            "UPDATE ioc_records SET verdict='clean' WHERE verdict IS NULL"
+        ))
+        conn.commit()
+
+        rows = conn.execute(text(
+            "SELECT id, raw_results FROM ioc_records "
+            "WHERE malware_family IS NULL AND raw_results IS NOT NULL"
+        )).fetchall()
+
+        backfilled = 0
+        for row_id, raw in rows:
+            try:
+                results = _json.loads(raw)
+            except Exception:
+                continue
+            family = None
+            for r in results:
+                if r.get("source") != "VirusTotal":
+                    continue
+                d = r.get("data") or {}
+                family = (d.get("popular_threat_label")
+                          or (d.get("popular_threat_classification") or {}).get("label")
+                          or d.get("suggested_threat_label"))
+                if family:
+                    break
+            if family:
+                conn.execute(text(
+                    "UPDATE ioc_records SET malware_family=:f WHERE id=:i"
+                ), {"f": family, "i": row_id})
+                backfilled += 1
+
+        conn.commit()
+
+    parts = []
+    if added:
+        parts.append(f"{len(added)} colonne(s) ajoutée(s) : {', '.join(added)}")
+    else:
+        parts.append("schéma déjà à jour")
+    parts.append(f"{backfilled} famille(s) backfillée(s)")
+    flash("Migration terminée — " + " · ".join(parts), "success")
+    return redirect(url_for("admin.users"))
+
+
 @admin_bp.route("/recompute-scores", methods=["POST"])
 @login_required
 def recompute_scores():

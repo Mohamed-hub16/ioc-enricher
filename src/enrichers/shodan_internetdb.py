@@ -17,7 +17,10 @@ def enrich(ioc: IOC, keys: dict | None = None) -> EnrichmentResult:
         resp.raise_for_status()
         payload = resp.json()
     except httpx.HTTPStatusError as exc:
-        return EnrichmentResult(source="Shodan InternetDB", ioc=ioc, error=f"HTTP {exc.response.status_code}")
+        msg = (f"HTTP {exc.response.status_code} — IP hébergeur bloquée par Shodan"
+               if exc.response.status_code == 403
+               else f"HTTP {exc.response.status_code}")
+        return EnrichmentResult(source="Shodan InternetDB", ioc=ioc, error=msg)
     except Exception as exc:
         return EnrichmentResult(source="Shodan InternetDB", ioc=ioc, error=str(exc))
 

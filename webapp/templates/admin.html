@@ -123,6 +123,36 @@
   </div>
   <div style="padding:.85rem .9rem;display:flex;flex-wrap:wrap;gap:.75rem;align-items:flex-start;">
 
+    {# Migration DB #}
+    <div style="flex:1;min-width:220px;max-width:340px;">
+      <div style="font-size:.82rem;font-weight:600;color:var(--text-primary);margin-bottom:.25rem;">
+        Migration base de données
+        <span style="font-size:.65rem;font-weight:400;color:var(--warning);
+                     background:rgba(232,151,26,.1);padding:.1rem .4rem;border-radius:4px;
+                     margin-left:.3rem;">si page Familles vide</span>
+      </div>
+      <div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.6rem;line-height:1.5;">
+        Ajoute les colonnes manquantes (<code style="font-size:.65rem;">malware_family</code>,
+        <code style="font-size:.65rem;">verdict</code>, <code style="font-size:.65rem;">tlp</code>…)
+        et backfille les données depuis les résultats VT existants.
+        Sûr à relancer plusieurs fois.
+      </div>
+      <form method="post" action="{{ url_for('admin.migrate_db') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit"
+                style="font-size:.78rem;font-weight:600;padding:.38rem .85rem;
+                       border-radius:7px;border:1px solid rgba(232,151,26,.3);cursor:pointer;
+                       background:rgba(232,151,26,.08);color:var(--warning);
+                       display:flex;align-items:center;gap:.4rem;transition:all .12s;"
+                onmouseover="this.style.background='rgba(232,151,26,.15)'"
+                onmouseout="this.style.background='rgba(232,151,26,.08)'">
+          <i class="bi bi-database-gear"></i>Migrer la base
+        </button>
+      </form>
+    </div>
+
+    <div style="width:1px;background:var(--border-subtle);align-self:stretch;flex-shrink:0;"></div>
+
     {# Recompute scores #}
     <div style="flex:1;min-width:220px;max-width:340px;">
       <div style="font-size:.82rem;font-weight:600;color:var(--text-primary);margin-bottom:.25rem;">
