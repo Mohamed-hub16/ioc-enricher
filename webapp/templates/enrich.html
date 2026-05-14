@@ -24,7 +24,7 @@
       ('VT',       'VirusTotal',  current_user.is_admin or current_user.virustotal_key_enc,  '500/j'),
       ('AbuseIPDB','AbuseIPDB',   current_user.is_admin or current_user.abuseipdb_key_enc, '1000/j'),
       ('urlscan',  'urlscan.io',  current_user.is_admin or current_user.urlscan_key_enc,    '100/j'),
-      ('Groq',     'Groq IA',     current_user.is_admin or current_user.groq_key_enc,     'free'),
+      ('Groq',     'Groq IA',     has_groq|default(false),                                'free'),
     ] %}
     {% for short, label, ok, lim in svcs %}
     <span title="{{ label }}"

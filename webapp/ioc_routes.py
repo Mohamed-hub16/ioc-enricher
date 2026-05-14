@@ -597,8 +597,12 @@ def enrich():
         db.session.commit()
         return render_template("enrich.html", bulk_results=bulk_results, max_batch=_MAX_BATCH)
 
+    keys = current_user.get_api_keys() if not current_user.is_admin else None
+    has_groq = bool(
+        (keys or {}).get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
+    )
     return render_template("enrich.html", prefill=request.args.get("ioc", ""),
-                           max_batch=_MAX_BATCH)
+                           max_batch=_MAX_BATCH, has_groq=has_groq)
 
 
 @ioc_bp.route("/ioc/<path:value>/delete", methods=["POST"])

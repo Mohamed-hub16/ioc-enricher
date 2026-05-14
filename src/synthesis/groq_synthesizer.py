@@ -1,8 +1,11 @@
 """Groq-based SOC narrative synthesizer (free tier)."""
 
+import logging
 import os
 from src.models import EnrichmentResult
 from src.family_extractor import extract_label
+
+log = logging.getLogger(__name__)
 
 _GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
@@ -249,7 +252,7 @@ def synthesize_family(family: str, context: str, groq_key: str = "") -> str | No
         )
         return response.choices[0].message.content.strip()
     except Exception as exc:
-        print(f"    [!] Groq family synthesis error : {exc}")
+        log.error("[groq] synthesize_family failed: %s", exc, exc_info=True)
         return None
 
 
@@ -281,7 +284,7 @@ def synthesize(results: list[EnrichmentResult], threat_score: int = 0, groq_key:
         )
         return response.choices[0].message.content.strip()
     except Exception as exc:
-        print(f"    [!] Groq synthesis error : {exc}")
+        log.error("[groq] synthesize failed: %s", exc, exc_info=True)
         return None
 
 
