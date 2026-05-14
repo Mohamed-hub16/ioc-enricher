@@ -111,4 +111,70 @@
     </table>
   </div>
 </div>
+
+{# ── Maintenance ────────────────────────────────────────────────────────── #}
+<div class="mt-4"
+     style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;overflow:hidden;">
+  <div style="padding:.6rem .9rem;border-bottom:1px solid var(--border-subtle);
+              display:flex;align-items:center;gap:.5rem;">
+    <i class="bi bi-wrench" style="color:var(--accent);font-size:.85rem;"></i>
+    <span style="font-size:.7rem;font-weight:700;text-transform:uppercase;
+                 letter-spacing:.6px;color:var(--text-muted);">Maintenance</span>
+  </div>
+  <div style="padding:.85rem .9rem;display:flex;flex-wrap:wrap;gap:.75rem;align-items:flex-start;">
+
+    {# Recompute scores #}
+    <div style="flex:1;min-width:220px;max-width:340px;">
+      <div style="font-size:.82rem;font-weight:600;color:var(--text-primary);margin-bottom:.25rem;">
+        Recalculer les scores
+      </div>
+      <div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.6rem;line-height:1.5;">
+        Recalcule les threat scores depuis les données brutes existantes.
+        Aucun appel API — instantané.
+      </div>
+      <form method="post" action="{{ url_for('admin.recompute_scores') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit"
+                style="font-size:.78rem;font-weight:600;padding:.38rem .85rem;
+                       border-radius:7px;border:1px solid var(--border);cursor:pointer;
+                       background:var(--bg-elevated);color:var(--text-primary);
+                       display:flex;align-items:center;gap:.4rem;transition:border-color .12s;"
+                onmouseover="this.style.borderColor='var(--accent)'"
+                onmouseout="this.style.borderColor='var(--border)'">
+          <i class="bi bi-arrow-clockwise"></i>Recalculer
+        </button>
+      </form>
+    </div>
+
+    <div style="width:1px;background:var(--border-subtle);align-self:stretch;flex-shrink:0;"></div>
+
+    {# Patch enrich #}
+    <div style="flex:1;min-width:220px;max-width:400px;">
+      <div style="font-size:.82rem;font-weight:600;color:var(--text-primary);margin-bottom:.25rem;">
+        Patch enrichissement
+        <span style="font-size:.65rem;font-weight:400;color:var(--text-muted);
+                     background:var(--bg-elevated);padding:.1rem .4rem;border-radius:4px;
+                     margin-left:.3rem;">arrière-plan</span>
+      </div>
+      <div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.6rem;line-height:1.5;">
+        Enrichit les IOCs existants avec les sources récemment ajoutées
+        (ThreatFox, MalwareBazaar, Shodan…) sans re-appeler les sources déjà présentes.
+      </div>
+      <form method="post" action="{{ url_for('admin.patch_enrich') }}"
+            onsubmit="return confirm('Lancer le patch ? Les appels API vont consommer du quota.')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit"
+                style="font-size:.78rem;font-weight:600;padding:.38rem .85rem;
+                       border-radius:7px;border:1px solid rgba(201,169,110,.3);cursor:pointer;
+                       background:rgba(201,169,110,.08);color:var(--accent);
+                       display:flex;align-items:center;gap:.4rem;transition:all .12s;"
+                onmouseover="this.style.background='rgba(201,169,110,.15)'"
+                onmouseout="this.style.background='rgba(201,169,110,.08)'">
+          <i class="bi bi-stars"></i>Patcher les IOCs manquants
+        </button>
+      </form>
+    </div>
+
+  </div>
+</div>
 {% endblock %}
