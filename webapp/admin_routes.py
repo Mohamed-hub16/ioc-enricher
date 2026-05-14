@@ -104,22 +104,47 @@ def migrate_db():
             "WHERE malware_family IS NULL AND raw_results IS NOT NULL"
         )).fetchall()
 
+        _GENERIC = {
+            "malware", "suspicious", "unknown", "trojan", "generic", "virus",
+            "spyware", "adware", "pup", "backdoor", "ransomware", "worm",
+            "rootkit", "exploit", "downloader",
+        }
+
+        def _pick_family(results_json: list) -> str | None:
+            vt = next((r.get("data") for r in results_json
+                       if r.get("source") == "VirusTotal" and r.get("data")
+                       and not r.get("error")), None)
+            if vt:
+                f = vt.get("popular_threat_label")
+                if f: return f
+                ptc = vt.get("popular_threat_classification")
+                if isinstance(ptc, dict) and ptc.get("label"):
+                    return ptc["label"]
+            for r in results_json:
+                if r.get("source") in ("ThreatFox", "MalwareBazaar") and r.get("data"):
+                    items = r["data"].get("results") or []
+                    f = (items[0].get("malware_printable") or items[0].get("malware")
+                         if items else r["data"].get("signature"))
+                    if f: return f
+            if vt:
+                for tag in (vt.get("tags") or []):
+                    if tag and tag.lower() not in _GENERIC and len(tag) > 3:
+                        return tag.lower()
+                for label in (vt.get("threat_labels") or []):
+                    if isinstance(label, str) and label.lower() not in _GENERIC:
+                        return label
+                ctx = vt.get("crowdsourced_context") or []
+                if ctx and isinstance(ctx[0], dict) and ctx[0].get("title"):
+                    return ctx[0]["title"][:80]
+            return None
+
         backfilled = 0
         for row_id, raw in rows:
             try:
-                results = _json.loads(raw)
+                results_data = _json.loads(raw)
             except Exception:
                 continue
-            family = None
-            for r in results:
-                if r.get("source") != "VirusTotal":
-                    continue
-                d = r.get("data") or {}
-                family = (d.get("popular_threat_label")
-                          or (d.get("popular_threat_classification") or {}).get("label")
-                          or d.get("suggested_threat_label"))
-                if family:
-                    break
+            family = _pick_family(results_data)
             if family:
                 conn.execute(text(
                     "UPDATE ioc_records SET malware_family=:f WHERE id=:i"

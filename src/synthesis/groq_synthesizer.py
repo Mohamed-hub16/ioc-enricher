@@ -294,22 +294,64 @@ def synthesize_full(
     is_malicious = threat_score > 0
     verdict = "malicious" if is_malicious else "clean"
 
-    malware_family = None
-    if results:
-        for r in results:
-            if r.source == "VirusTotal" and r.data:
-                malware_family = r.data.get("popular_threat_label")
-                if malware_family:
-                    break
-        if not malware_family:
-            for r in results:
-                if r.source in ("ThreatFox", "MalwareBazaar") and r.data:
-                    items = r.data.get("results") or []
-                    if items and isinstance(items, list):
-                        malware_family = items[0].get("malware_printable") or items[0].get("malware")
-                    elif r.data.get("signature"):
-                        malware_family = r.data.get("signature")
-                    if malware_family:
-                        break
-
+    malware_family = _extract_family(results)
     return {"paragraph": paragraph, "verdict": verdict, "malware_family": malware_family}
+
+
+# Tags trop génériques pour servir de nom de famille
+_GENERIC_TAGS = {
+    "malware", "suspicious", "unknown", "trojan", "generic", "virus",
+    "spyware", "adware", "pup", "potentially", "unwanted", "backdoor",
+    "ransomware", "worm", "rootkit", "exploit", "downloader",
+}
+
+
+def _extract_family(results: list[EnrichmentResult]) -> str | None:
+    """Extract the most specific malware family name from enrichment results."""
+    vt_data = next(
+        (r.data for r in results if r.source == "VirusTotal" and r.data and not r.error),
+        None,
+    )
+
+    # ── 1. Hashes: popular_threat_label (best source) ──
+    if vt_data:
+        family = vt_data.get("popular_threat_label")
+        if family:
+            return family
+
+        ptc = vt_data.get("popular_threat_classification")
+        if isinstance(ptc, dict):
+            family = ptc.get("label")
+            if family:
+                return family
+
+    # ── 2. ThreatFox / MalwareBazaar (when available, e.g. local) ──
+    for r in results:
+        if r.source in ("ThreatFox", "MalwareBazaar") and r.data and not r.error:
+            items = r.data.get("results") or []
+            if items and isinstance(items, list):
+                family = items[0].get("malware_printable") or items[0].get("malware")
+            else:
+                family = r.data.get("signature")
+            if family:
+                return family
+
+    # ── 3. IPs / domains: VT tags (filter out generic noise) ──
+    if vt_data:
+        for tag in (vt_data.get("tags") or []):
+            if tag and tag.lower() not in _GENERIC_TAGS and len(tag) > 3:
+                return tag.lower()
+
+        # ── 4. VT threat_labels (analyst-submitted labels) ──
+        for label in (vt_data.get("threat_labels") or []):
+            if isinstance(label, str) and label.lower() not in _GENERIC_TAGS:
+                return label
+
+        # ── 5. crowdsourced_context title (e.g. "Cobalt Strike C2") ──
+        ctx = vt_data.get("crowdsourced_context") or []
+        if ctx and isinstance(ctx, list) and isinstance(ctx[0], dict):
+            title = ctx[0].get("title", "").strip()
+            if title:
+                return title[:80]
+
+    return None
