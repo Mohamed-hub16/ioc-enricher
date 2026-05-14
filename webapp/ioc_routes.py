@@ -497,7 +497,8 @@ def enrich():
                 existing.enriched_at = datetime.utcnow()
                 existing.enriched_by = current_user.email
                 existing.set_results(raw)
-                existing.paragraph = paragraph
+                if paragraph is not None:
+                    existing.paragraph = paragraph
                 existing.threat_score = threat_score
                 existing.malware_family = malware_family
                 existing.verdict = "malicious" if threat_score > 0 else "clean"
@@ -569,7 +570,8 @@ def enrich():
                 existing.enriched_at = now
                 existing.enriched_by = current_user.email
                 existing.set_results(raw_res)
-                existing.paragraph = paragraph
+                if paragraph is not None:
+                    existing.paragraph = paragraph
                 existing.threat_score = threat_score
                 existing.malware_family = malware_family
                 existing.verdict = "malicious" if threat_score > 0 else "clean"
