@@ -148,7 +148,8 @@ def enrich_ioc():
         existing.enriched_at = now
         existing.enriched_by = g.api_user.email
         existing.set_results(raw)
-        existing.paragraph = paragraph
+        if paragraph is not None:
+            existing.paragraph = paragraph
         existing.threat_score = threat_score
         existing.malware_family = malware_family
         existing.verdict = "malicious" if threat_score > 0 else "clean"

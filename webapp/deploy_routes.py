@@ -63,8 +63,6 @@ def deploy():
     reloaded = _pa_reload()
 
     return jsonify({
-        "status":         "ok",
-        "git_stdout":     pull.stdout.strip(),
-        "git_returncode": pull.returncode,
+        "status":         "ok" if pull.returncode == 0 else "git_error",
         "reloaded":       reloaded,
     }), 200

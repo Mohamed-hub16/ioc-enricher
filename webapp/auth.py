@@ -3,7 +3,7 @@ import re
 from urllib.parse import urlparse
 from flask import Blueprint, render_template, redirect, url_for, flash, request, session
 from flask_login import login_user, logout_user, login_required, current_user
-from webapp import db
+from webapp import db, limiter
 from webapp.models import User
 
 auth_bp = Blueprint("auth", __name__)
@@ -22,6 +22,7 @@ def _validate_password(password: str) -> str | None:
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
+@limiter.limit("10 per minute; 30 per hour", methods=["POST"])
 def login():
     if current_user.is_authenticated:
         return redirect(url_for("ioc.index"))
@@ -36,7 +37,8 @@ def login():
         else:
             login_user(user, remember=True)
             next_url = request.args.get("next", "")
-            if next_url and urlparse(next_url).netloc == "":
+            parsed = urlparse(next_url)
+            if next_url and parsed.netloc == "" and not next_url.startswith("//"):
                 return redirect(next_url)
             return redirect(url_for("ioc.index"))
     return render_template("login.html")

@@ -787,7 +787,7 @@ def set_tags(value: str):
         abort(403)
     record = IOCRecord.query.filter_by(value=value).first_or_404()
     raw_tags = request.form.get("tags", "")
-    tags = [t.strip() for t in re.split(r"[,;]+", raw_tags) if t.strip()]
+    tags = [t.strip()[:64] for t in re.split(r"[,;]+", raw_tags) if t.strip()][:20]
     record.set_tags(tags)
     db.session.commit()
     flash("Tags mis à jour.", "success")
@@ -806,7 +806,10 @@ def _rel_time(dt: datetime) -> str:
 
 
 @ioc_bp.route("/pivot/families")
+@login_required
 def pivot_families():
+    if not current_user.is_approved:
+        abort(403)
     rows = (
         db.session.query(
             IOCRecord.malware_family,
@@ -824,7 +827,10 @@ def pivot_families():
 
 
 @ioc_bp.route("/pivot/family/<path:family>")
+@login_required
 def pivot_family(family: str):
+    if not current_user.is_approved:
+        abort(403)
     sort = request.args.get("sort", "score")
 
     q = IOCRecord.query.filter(IOCRecord.malware_family.ilike(f"%{family}%"))

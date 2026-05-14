@@ -8,6 +8,10 @@ db = SQLAlchemy()
 login_manager = LoginManager()
 csrf = CSRFProtect()
 
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+limiter = Limiter(key_func=get_remote_address, default_limits=[])
+
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -24,15 +28,30 @@ def create_app() -> Flask:
             "Generate one with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
         )
 
+    is_production = os.getenv("FLASK_ENV", "production").lower() != "development"
+
     app.config.update(
         SECRET_KEY=secret_key,
         SQLALCHEMY_DATABASE_URI=f"sqlite:///{os.path.join(instance_dir, 'ioc_enricher.db')}",
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         WTF_CSRF_TIME_LIMIT=3600,
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_SECURE=is_production,
     )
+
+    @app.after_request
+    def _security_headers(response):
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        if is_production:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
 
     db.init_app(app)
     csrf.init_app(app)
+    limiter.init_app(app)
 
     login_manager.init_app(app)
     login_manager.login_view = "auth.login"
@@ -49,6 +68,11 @@ def create_app() -> Flask:
     def forbidden(_e):
         flash("Accès non autorisé.", "danger")
         return redirect(url_for("ioc.index"))
+
+    @app.errorhandler(429)
+    def too_many_requests(_e):
+        flash("Trop de tentatives de connexion. Veuillez patienter avant de réessayer.", "danger")
+        return redirect(url_for("auth.login"))
 
     from .auth import auth_bp
     from .ioc_routes import ioc_bp
