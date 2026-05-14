@@ -64,10 +64,13 @@ def main():
             conn.commit()
             print(f"  verdict 'clean'     backfillé : {r.rowcount} ligne(s)")
 
-            # ── 3. Backfill malware_family from VirusTotal raw data ─────
+            # ── 3. Reset + backfill malware_family (strict sources only) ──
+            conn.execute(text("UPDATE ioc_records SET malware_family = NULL"))
+            conn.commit()
+            print("  malware_family réinitialisé (données bruitées purgées)")
+
             rows = conn.execute(text(
-                "SELECT id, raw_results FROM ioc_records "
-                "WHERE malware_family IS NULL AND raw_results IS NOT NULL"
+                "SELECT id, raw_results FROM ioc_records WHERE raw_results IS NOT NULL"
             )).fetchall()
 
             backfilled = 0
@@ -79,23 +82,21 @@ def main():
 
                 family = None
                 for r in results:
-                    if r.get("source") != "VirusTotal":
-                        continue
-                    d = r.get("data") or {}
-                    # Hashes: popular_threat_label  (e.g. "trojan.redline")
-                    family = d.get("popular_threat_label")
-                    if not family:
-                        # Fallback: popular_threat_classification.label
-                        ptc = d.get("popular_threat_classification")
-                        if isinstance(ptc, dict):
-                            family = ptc.get("label")
-                    if not family:
-                        # Fallback: first suggested_threat_label
-                        stl = d.get("suggested_threat_label")
-                        if stl:
-                            family = stl
-                    if family:
-                        break
+                    if r.get("source") == "VirusTotal":
+                        d = r.get("data") or {}
+                        family = d.get("popular_threat_label")
+                        if not family:
+                            ptc = d.get("popular_threat_classification")
+                            if isinstance(ptc, dict):
+                                family = ptc.get("label")
+                        if family:
+                            break
+                    elif r.get("source") in ("ThreatFox", "MalwareBazaar") and r.get("data"):
+                        items = r["data"].get("results") or []
+                        family = ((items[0].get("malware_printable") or items[0].get("malware"))
+                                  if items else r["data"].get("signature"))
+                        if family:
+                            break
 
                 if family:
                     conn.execute(text(

@@ -99,16 +99,13 @@ def migrate_db():
         ))
         conn.commit()
 
-        rows = conn.execute(text(
-            "SELECT id, raw_results FROM ioc_records "
-            "WHERE malware_family IS NULL AND raw_results IS NOT NULL"
-        )).fetchall()
+        # Reset all family data — re-backfill from scratch with strict logic
+        conn.execute(text("UPDATE ioc_records SET malware_family = NULL"))
+        conn.commit()
 
-        _GENERIC = {
-            "malware", "suspicious", "unknown", "trojan", "generic", "virus",
-            "spyware", "adware", "pup", "backdoor", "ransomware", "worm",
-            "rootkit", "exploit", "downloader",
-        }
+        rows = conn.execute(text(
+            "SELECT id, raw_results FROM ioc_records WHERE raw_results IS NOT NULL"
+        )).fetchall()
 
         def _pick_family(results_json: list) -> str | None:
             vt = next((r.get("data") for r in results_json
@@ -126,16 +123,6 @@ def migrate_db():
                     f = (items[0].get("malware_printable") or items[0].get("malware")
                          if items else r["data"].get("signature"))
                     if f: return f
-            if vt:
-                for tag in (vt.get("tags") or []):
-                    if tag and tag.lower() not in _GENERIC and len(tag) > 3:
-                        return tag.lower()
-                for label in (vt.get("threat_labels") or []):
-                    if isinstance(label, str) and label.lower() not in _GENERIC:
-                        return label
-                ctx = vt.get("crowdsourced_context") or []
-                if ctx and isinstance(ctx[0], dict) and ctx[0].get("title"):
-                    return ctx[0]["title"][:80]
             return None
 
         backfilled = 0
@@ -158,7 +145,7 @@ def migrate_db():
         parts.append(f"{len(added)} colonne(s) ajoutée(s) : {', '.join(added)}")
     else:
         parts.append("schéma déjà à jour")
-    parts.append(f"{backfilled} famille(s) backfillée(s)")
+    parts.append(f"{backfilled} famille(s) détectée(s) (données erronées purgées)")
     flash("Migration terminée — " + " · ".join(parts), "success")
     return redirect(url_for("admin.users"))
 
