@@ -304,6 +304,18 @@ _GENERIC_SIGNERS = frozenset({
     "symantec", "certum", "ssl.com", "godaddy", "amazon",
 })
 _INFRA_TAGS = frozenset({"tor", "vpn", "proxy", "cdn", "anonymizer", "i2p", "bulletproof"})
+_CORP_SUFFIXES = (" gmbh", " inc.", " inc", " llc", " ltd.", " ltd",
+                  " corp.", " corp", " corporation", " software", " s.a.", " s.r.o.")
+
+
+def _clean_company(name: str) -> str:
+    """Strip trailing corporate suffixes for a cleaner label (e.g. 'AnyDesk Software GmbH' → 'AnyDesk')."""
+    cleaned = name.strip()
+    for sfx in _CORP_SUFFIXES:
+        if cleaned.lower().endswith(sfx):
+            cleaned = cleaned[: len(cleaned) - len(sfx)].strip()
+            break
+    return cleaned
 
 
 def _extract_family(results: list[EnrichmentResult]) -> str | None:
@@ -349,16 +361,21 @@ def _extract_family(results: list[EnrichmentResult]) -> str | None:
         if product and len(product) > 2:
             return product
 
-        # 4. Certificate subject O= field — signed software identity
+        # 4. Certificate info — subject O= or signers field
         sig = vt_data.get("signature_info") or {}
         subject = (sig.get("subject") or "").strip()
         for part in subject.split(","):
             part = part.strip()
             if part.startswith("O="):
-                name = part[2:].strip()
+                name = _clean_company(part[2:].strip())
                 if name and len(name) > 3 and name.lower() not in _GENERIC_SIGNERS:
                     return name
                 break
+        signers = (sig.get("signers") or "").strip()
+        if signers:
+            name = _clean_company(signers)
+            if name and len(name) > 3 and name.lower() not in _GENERIC_SIGNERS:
+                return name
 
         # 5. Known infrastructure VT tags — IPs/domains (tor, vpn, proxy…)
         for tag in (vt_data.get("tags") or []):

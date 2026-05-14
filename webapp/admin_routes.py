@@ -113,6 +113,14 @@ def migrate_db():
             "symantec", "certum", "ssl.com", "godaddy", "amazon",
         })
         _INFRA_TAGS = frozenset({"tor", "vpn", "proxy", "cdn", "anonymizer", "i2p", "bulletproof"})
+        _CORP_SUFFIXES = (" gmbh", " inc.", " inc", " llc", " ltd.", " ltd",
+                          " corp.", " corp", " corporation", " software", " s.a.", " s.r.o.")
+
+        def _clean_company(n: str) -> str:
+            for sfx in _CORP_SUFFIXES:
+                if n.lower().endswith(sfx):
+                    return n[: len(n) - len(sfx)].strip()
+            return n
 
         def _pick_family(results_json: list) -> str | None:
             vt = next((r.get("data") for r in results_json
@@ -138,16 +146,21 @@ def migrate_db():
                 product = (exif.get("ProductName") or exif.get("InternalName") or "").strip()
                 if product and len(product) > 2:
                     return product
-                # 4. Certificate subject O= field
+                # 4. Certificate subject O= or signers field
                 sig = vt.get("signature_info") or {}
                 subject = (sig.get("subject") or "").strip()
                 for part in subject.split(","):
                     part = part.strip()
                     if part.startswith("O="):
-                        name = part[2:].strip()
+                        name = _clean_company(part[2:].strip())
                         if name and len(name) > 3 and name.lower() not in _GENERIC_SIGNERS:
                             return name
                         break
+                signers = (sig.get("signers") or "").strip()
+                if signers:
+                    name = _clean_company(signers)
+                    if name and len(name) > 3 and name.lower() not in _GENERIC_SIGNERS:
+                        return name
                 # 5. Known infrastructure VT tags
                 for tag in (vt.get("tags") or []):
                     if tag and tag.lower() in _INFRA_TAGS:
