@@ -1,4 +1,6 @@
+import logging
 import os
+import traceback
 from flask import Flask, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
@@ -16,6 +18,15 @@ _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def create_app() -> Flask:
+    # Fail fast if cryptography is missing — better than a silent 500 at runtime.
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError(
+            "Package 'cryptography' is not installed. "
+            "Run: pip install -r requirements.txt"
+        ) from exc
+
     app = Flask(__name__)
 
     instance_dir = os.path.join(_BASE_DIR, "instance")
@@ -73,6 +84,16 @@ def create_app() -> Flask:
     def too_many_requests(_e):
         flash("Trop de tentatives de connexion. Veuillez patienter avant de réessayer.", "danger")
         return redirect(url_for("auth.login"))
+
+    @app.errorhandler(500)
+    def internal_error(exc):
+        app.logger.error("500 Internal Server Error:\n%s", traceback.format_exc())
+        db.session.rollback()
+        return (
+            "500 Internal Server Error — "
+            "L'erreur a été enregistrée dans les logs du serveur.",
+            500,
+        )
 
     from .auth import auth_bp
     from .ioc_routes import ioc_bp
