@@ -11,7 +11,7 @@ _TIMEOUT = 10.0
 def enrich(ioc: IOC, keys: dict | None = None) -> EnrichmentResult:
     if ioc.type != "ip":
         return EnrichmentResult(source="GreyNoise", ioc=ioc, error="IP only")
-    api_key = (keys or {}).get("GREYNOISE_API_KEY") or os.getenv("GREYNOISE_API_KEY", "")
+    api_key = keys.get("GREYNOISE_API_KEY", "") if keys is not None else os.getenv("GREYNOISE_API_KEY", "")
     if not api_key:
         return EnrichmentResult(source="GreyNoise", ioc=ioc, error="GREYNOISE_API_KEY not set")
     try:

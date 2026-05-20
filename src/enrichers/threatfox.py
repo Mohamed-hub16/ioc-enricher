@@ -9,7 +9,7 @@ _TIMEOUT = 15.0
 
 
 def enrich(ioc: IOC, keys: dict | None = None) -> EnrichmentResult:
-    api_key = (keys or {}).get("ABUSE_CH_API_KEY") or os.getenv("ABUSE_CH_API_KEY", "")
+    api_key = keys.get("ABUSE_CH_API_KEY", "") if keys is not None else os.getenv("ABUSE_CH_API_KEY", "")
     if not api_key:
         return EnrichmentResult(source="ThreatFox", ioc=ioc, error="ABUSE_CH_API_KEY not set")
     try:

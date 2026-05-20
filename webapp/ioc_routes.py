@@ -284,7 +284,7 @@ def _enrich_ioc(value: str, keys: dict | None = None, generate_ai: bool = True) 
     threat_score = _compute_threat_score(raw)
     score_breakdown = _compute_score_breakdown(raw)
 
-    groq_key = (keys or {}).get("GROQ_API_KEY", "") or os.getenv("GROQ_API_KEY", "")
+    groq_key = keys.get("GROQ_API_KEY", "") if keys is not None else os.getenv("GROQ_API_KEY", "")
     if generate_ai and groq_key:
         synthesis = groq_synthesizer.synthesize_full(result_objects, threat_score, groq_key=groq_key)
         paragraph = synthesis["paragraph"]
@@ -601,7 +601,7 @@ def enrich():
 
     keys = current_user.get_api_keys() if not current_user.is_admin else None
     has_groq = bool(
-        (keys or {}).get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
+        keys.get("GROQ_API_KEY", "") if keys is not None else os.getenv("GROQ_API_KEY")
     )
     return render_template("enrich.html", prefill=request.args.get("ioc", ""),
                            max_batch=_MAX_BATCH, has_groq=has_groq)

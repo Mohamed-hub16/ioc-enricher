@@ -105,7 +105,7 @@ def _get_file_relationships(file_hash: str, api_key: str) -> dict:
 
 
 def enrich(ioc: IOC, keys: dict | None = None) -> EnrichmentResult:
-    api_key = (keys or {}).get("VIRUSTOTAL_API_KEY") or os.getenv("VIRUSTOTAL_API_KEY", "")
+    api_key = keys.get("VIRUSTOTAL_API_KEY", "") if keys is not None else os.getenv("VIRUSTOTAL_API_KEY", "")
     if not api_key:
         return EnrichmentResult(source="VirusTotal", ioc=ioc, error="VIRUSTOTAL_API_KEY not set")
 

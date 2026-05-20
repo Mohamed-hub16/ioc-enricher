@@ -17,7 +17,7 @@ def enrich(ioc: IOC, keys: dict | None = None) -> EnrichmentResult:
         return EnrichmentResult(source="urlscan.io", ioc=ioc, error=f"Unsupported type: {ioc.type}")
 
     headers: dict[str, str] = {}
-    api_key = (keys or {}).get("URLSCAN_API_KEY") or os.getenv("URLSCAN_API_KEY", "")
+    api_key = keys.get("URLSCAN_API_KEY", "") if keys is not None else os.getenv("URLSCAN_API_KEY", "")
     if api_key:
         headers["API-Key"] = api_key
 
