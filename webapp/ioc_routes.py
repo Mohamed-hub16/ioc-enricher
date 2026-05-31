@@ -303,6 +303,7 @@ def _purge_stale_iocs() -> int:
     stale = IOCRecord.query.filter(IOCRecord.enriched_at < cutoff).all()
     count = len(stale)
     for record in stale:
+        Comment.query.filter_by(ioc_record_id=record.id).delete()
         db.session.delete(record)
     if count:
         db.session.commit()
