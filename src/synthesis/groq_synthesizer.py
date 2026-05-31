@@ -185,11 +185,12 @@ def _format_context(results: list[EnrichmentResult], is_malicious: bool) -> str:
     }
 
     for r in results:
-        lines.append(f"=== {r.source} ===")
-        if r.error:
-            lines.append(f"Erreur : {r.error}")
-            lines.append("")
+        # Skip sources that failed: the LLM must never be told a source errored,
+        # otherwise it comments on "données indisponibles" in the paragraph.
+        if r.error or not r.data:
             continue
+
+        lines.append(f"=== {r.source} ===")
 
         for k, v in r.data.items():
             if v is None or v == "" or v == [] or v == {}:
@@ -260,10 +261,65 @@ def synthesize_family(family: str, context: str, groq_key: str = "") -> str | No
         return None
 
 
-def synthesize(results: list[EnrichmentResult], threat_score: int = 0, groq_key: str = "") -> str | None:
+# Appended to every system prompt: the model must never reference failed/absent sources.
+_GLOBAL_RULE = (
+    "\n\nRÈGLE ABSOLUE : Ne mentionne JAMAIS qu'une source de données est indisponible, "
+    "en erreur, manquante ou n'a pas répondu (ne cite jamais GreyNoise, Shodan, ou toute "
+    "autre source comme \"non disponible\"). Ne commente jamais l'absence d'une source. "
+    "Travaille uniquement avec les informations effectivement fournies ci-dessous."
+)
+
+# Per-level directive appended after _GLOBAL_RULE.
+_LEVEL_BRIEF = (
+    "\n\n━━ NIVEAU D'ANALYSE : BREF ━━\n"
+    "Cette consigne PRIME sur toute indication de longueur donnée plus haut. "
+    "Rédige 2 à 3 phrases maximum, denses, ne retenant que l'essentiel : le verdict, "
+    "la nature de la menace (ou la légitimité), et l'unique élément de contexte le plus "
+    "déterminant. Aucune énumération, aucun détail secondaire. UN SEUL paragraphe court."
+)
+_LEVEL_STANDARD = (
+    "\n\n━━ COMPLÉMENT STANDARD : IDENTIFICATION DE L'ENTITÉ ━━\n"
+    "Si cet IOC est associé à un outil, service, logiciel ou infrastructure connus "
+    "(ex : AnyDesk, TeamViewer, Cobalt Strike, Cloudflare, AWS, un éditeur de sécurité, "
+    "un opérateur télécom, une entreprise identifiable…), intègre en 1 à 2 phrases dans ton "
+    "analyse une description concise de ce qu'est cet outil ou service dans le contexte IT/cybersécurité. "
+    "Si l'entité est inconnue, anonyme ou non identifiable, ne force pas de description — "
+    "passe directement à l'analyse des données disponibles."
+)
+_LEVEL_DETAILED = (
+    "\n\n━━ NIVEAU D'ANALYSE : DÉTAILLÉ ━━\n"
+    "Cette consigne PRIME sur toute indication de longueur donnée plus haut. "
+    "Produis l'analyse la plus complète et la plus longue possible (jusqu'à ~20 phrases). "
+    "Commence par identifier clairement l'entité derrière cet IOC : si c'est un outil, "
+    "service, logiciel ou infrastructure connus, décris-le en 2 à 3 phrases (nature, éditeur, "
+    "usage légitime typique en entreprise). "
+    "Pour les outils à double usage (Remote Access Tools comme AnyDesk/TeamViewer, outils "
+    "offensifs comme Cobalt Strike/Mimikatz, outils d'administration système, packers…), "
+    "analyse explicitement si l'usage observé dans ce cas précis est légitime ou malveillant : "
+    "examine les patterns de détection, le contexte d'apparition (fichiers parents, sandbox, "
+    "IDS), les techniques LotL (Living off the Land) éventuelles, et conclus sur le niveau "
+    "de risque réel avec des arguments factuels tirés des données fournies. "
+    "Ensuite, exploite TOUTES les sections de données disponibles et établis explicitement les "
+    "corrélations entre elles (infrastructure ↔ détections ↔ contexte ↔ règles IDS ↔ fichiers "
+    "et relations). Cite un maximum d'éléments factuels précis (ASN, bloc CIDR, CVE, TTPs "
+    "MITRE ATT&CK, sandboxes, domaines/IPs contactés, artefacts forensic). "
+    "Reste UN SEUL paragraphe fluide, sans titres ni listes."
+)
+_LEVEL_DIRECTIVES = {"brief": _LEVEL_BRIEF, "standard": _LEVEL_STANDARD, "detailed": _LEVEL_DETAILED}
+_LEVEL_MAX_TOKENS = {"brief": 220, "standard": 1000, "detailed": 1800}
+
+
+def synthesize(
+    results: list[EnrichmentResult],
+    threat_score: int = 0,
+    groq_key: str = "",
+    level: str = "standard",
+) -> str | None:
     api_key = groq_key or os.getenv("GROQ_API_KEY")
     if not api_key:
         return None
+    if level not in _LEVEL_DIRECTIVES:
+        level = "standard"
     try:
         from groq import Groq
         is_malicious = threat_score > 0
@@ -274,6 +330,7 @@ def synthesize(results: list[EnrichmentResult], threat_score: int = 0, groq_key:
             system_prompt = _SYSTEM_IP_MALICIOUS if is_malicious else _SYSTEM_IP_LEGITIMATE
         else:
             system_prompt = _SYSTEM_DOMAIN_MALICIOUS if is_malicious else _SYSTEM_DOMAIN_LEGITIMATE
+        system_prompt = system_prompt + _GLOBAL_RULE + _LEVEL_DIRECTIVES[level]
         context = _format_context(results, is_malicious)
 
         client = Groq(api_key=api_key)
@@ -284,7 +341,7 @@ def synthesize(results: list[EnrichmentResult], threat_score: int = 0, groq_key:
                 {"role": "user", "content": f"Décris cet IOC :\n\n{context}"},
             ],
             temperature=0.2,
-            max_tokens=900,
+            max_tokens=_LEVEL_MAX_TOKENS[level],
         )
         return response.choices[0].message.content.strip()
     except Exception as exc:
@@ -296,9 +353,10 @@ def synthesize_full(
     results: list[EnrichmentResult],
     threat_score: int = 0,
     groq_key: str = "",
+    level: str = "standard",
 ) -> dict:
     """Return {"paragraph": str|None, "verdict": str, "malware_family": str|None}."""
-    paragraph = synthesize(results, threat_score, groq_key)
+    paragraph = synthesize(results, threat_score, groq_key, level=level)
     is_malicious = threat_score > 0
     verdict = "malicious" if is_malicious else "clean"
 

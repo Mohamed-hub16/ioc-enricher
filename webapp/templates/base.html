@@ -4,6 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}IOC Enricher{% endblock %}</title>
+  <!-- Apply stored theme before any CSS renders to avoid flash -->
+  <script>
+    (function(){
+      var t = localStorage.getItem('ioc-theme') || 'dark';
+      var el = document.documentElement;
+      el.setAttribute('data-theme', t);
+      el.setAttribute('data-bs-theme', t === 'light' ? 'light' : 'dark');
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -29,6 +38,81 @@
       --success-dim:   #0d4a28;
       --warning:       #e8971a;
       --warning-dim:   #6a3f00;
+    }
+
+    /* ── Thème : Clair ─────────────────────────── */
+    html[data-theme="light"] {
+      --bg-base:       #f4f0e8;
+      --bg-card:       #ffffff;
+      --bg-elevated:   #ebe5d8;
+      --bg-hover:      #e0d9cc;
+      --bg-nav:        rgba(255,252,248,.97);
+      --border:        #cec5b4;
+      --border-subtle: #ddd6c8;
+      --text-primary:  #1a1612;
+      --text-secondary:#5c4e3a;
+      --text-muted:    #9a8a78;
+      --accent:        #8c6028;
+      --accent-dim:    #6e4a18;
+      --danger:        #c42b2b;
+      --danger-dim:    #fde8e8;
+      --success:       #167a3c;
+      --success-dim:   #d8f5e6;
+      --warning:       #a05010;
+      --warning-dim:   #fef0d8;
+    }
+    html[data-theme="light"] .verdict-mal  { color:#b91c1c;background:rgba(185,28,28,.1);border-color:rgba(185,28,28,.25); }
+    html[data-theme="light"] .verdict-ok   { color:#15803d;background:rgba(21,128,61,.1);border-color:rgba(21,128,61,.25); }
+    html[data-theme="light"] .alert-warning{ background:rgba(160,80,16,.1);color:#7c3d0c; }
+    html[data-theme="light"] .alert-danger { background:rgba(185,28,28,.1);color:#991b1b; }
+    html[data-theme="light"] .alert-success{ background:rgba(22,122,60,.1);color:#14532d; }
+    html[data-theme="light"] .alert-info   { background:rgba(140,96,40,.1);color:#6b3e10; }
+    html[data-theme="light"] .paragraph-box{ background:rgba(140,96,40,.06); }
+    html[data-theme="light"] .ioc-card.mal { border-left-color:var(--danger); }
+    html[data-theme="light"] .ioc-card.ok  { border-left-color:var(--success); }
+
+    /* ── Thème : Minuit ─────────────────────────── */
+    html[data-theme="midnight"] {
+      --bg-base:       #080c14;
+      --bg-card:       #0d1220;
+      --bg-elevated:   #131b2e;
+      --bg-hover:      #1a2540;
+      --bg-nav:        rgba(8,12,20,.97);
+      --border:        #1e3050;
+      --border-subtle: #142240;
+      --text-primary:  #ddeeff;
+      --text-secondary:#6a90bb;
+      --text-muted:    #304870;
+      --accent:        #4a9eda;
+      --accent-dim:    #2d7ab8;
+      --danger:        #e84040;
+      --danger-dim:    #7a1a1a;
+      --success:       #23a85c;
+      --success-dim:   #0d4a28;
+      --warning:       #e8971a;
+      --warning-dim:   #5a3800;
+    }
+
+    /* ── Thème : Cyber ──────────────────────────── */
+    html[data-theme="cyber"] {
+      --bg-base:       #050f07;
+      --bg-card:       #091410;
+      --bg-elevated:   #0e1e18;
+      --bg-hover:      #142a20;
+      --bg-nav:        rgba(5,15,7,.97);
+      --border:        #1a3828;
+      --border-subtle: #102818;
+      --text-primary:  #c8f0d8;
+      --text-secondary:#4a8860;
+      --text-muted:    #205838;
+      --accent:        #2eb84a;
+      --accent-dim:    #1e8c36;
+      --danger:        #e84040;
+      --danger-dim:    #7a1a1a;
+      --success:       #2eb84a;
+      --success-dim:   #0d4a28;
+      --warning:       #d4a820;
+      --warning-dim:   #4a3800;
     }
 
     *, *::before, *::after { box-sizing: border-box; }
@@ -386,17 +470,6 @@
       color: var(--text-secondary);
     }
 
-    /* ── TLP badges ─────────────────────────────── */
-    .tlp-white  { background: rgba(200,200,200,0.12); color: #b0b8cc; border: 1px solid rgba(180,180,180,0.2); }
-    .tlp-green  { background: rgba(35,168,92,0.12);   color: #4fd890; border: 1px solid rgba(35,168,92,0.25); }
-    .tlp-amber  { background: rgba(232,151,26,0.12);  color: #f5b43a; border: 1px solid rgba(232,151,26,0.25); }
-    .tlp-red    { background: rgba(232,64,64,0.12);   color: #f07070; border: 1px solid rgba(232,64,64,0.25); }
-    .tlp-badge {
-      border-radius: 4px; padding: 0.15rem 0.5rem;
-      font-size: 0.7rem; font-weight: 700;
-      font-family: 'JetBrains Mono', monospace;
-    }
-
     /* ── Stale badge ────────────────────────────── */
     .stale-badge {
       background: rgba(122, 72, 0, 0.2);
@@ -439,11 +512,82 @@
     ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
     footer { border-top: 1px solid var(--border); }
+
+    /* ── Thème : Nord ──────────────────────────── */
+    html[data-theme="nord"] {
+      --bg-base:       #2e3440;
+      --bg-card:       #3b4252;
+      --bg-elevated:   #434c5e;
+      --bg-hover:      #4c566a;
+      --bg-nav:        rgba(46,52,64,.97);
+      --border:        #4c566a;
+      --border-subtle: #434c5e;
+      --text-primary:  #eceff4;
+      --text-secondary:#d8dee9;
+      --text-muted:    #7a8a9a;
+      --accent:        #88c0d0;
+      --accent-dim:    #5e9aaa;
+      --danger:        #bf616a;
+      --danger-dim:    #5c2d32;
+      --success:       #a3be8c;
+      --success-dim:   #3d5c2e;
+      --warning:       #ebcb8b;
+      --warning-dim:   #6e5a28;
+    }
+
+    /* ── Thème : Tokyo Night ────────────────────── */
+    html[data-theme="tokyo"] {
+      --bg-base:       #1a1b26;
+      --bg-card:       #16161e;
+      --bg-elevated:   #24283b;
+      --bg-hover:      #2f3549;
+      --bg-nav:        rgba(26,27,38,.97);
+      --border:        #3b4261;
+      --border-subtle: #292e42;
+      --text-primary:  #c0caf5;
+      --text-secondary:#787c99;
+      --text-muted:    #414868;
+      --accent:        #7aa2f7;
+      --accent-dim:    #5a82d7;
+      --danger:        #f7768e;
+      --danger-dim:    #6b2035;
+      --success:       #9ece6a;
+      --success-dim:   #3d5c1e;
+      --warning:       #e0af68;
+      --warning-dim:   #6e4d18;
+    }
+
+    /* ── Theme swatch dot ───────────────────────── */
+    .theme-swatch {
+      display: inline-block;
+      width: 13px; height: 13px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      outline: 2px solid transparent;
+      outline-offset: 1px;
+      flex-shrink: 0;
+      transition: outline-color .15s;
+    }
+    .theme-option:hover .theme-swatch,
+    .theme-option.active .theme-swatch {
+      outline-color: inherit; /* set via inline style */
+    }
+    .theme-option.active {
+      color: var(--accent) !important;
+      background-color: rgba(201,169,110,.1) !important;
+    }
+    /* active state per theme */
+    html[data-theme="dark"]     .theme-option[data-theme="dark"]     { color:var(--accent)!important;background:rgba(201,169,110,.10)!important; }
+    html[data-theme="light"]    .theme-option[data-theme="light"]    { color:var(--accent)!important;background:rgba(140, 96, 40,.12)!important; }
+    html[data-theme="midnight"] .theme-option[data-theme="midnight"] { color:var(--accent)!important;background:rgba( 74,158,218,.10)!important; }
+    html[data-theme="cyber"]    .theme-option[data-theme="cyber"]    { color:var(--accent)!important;background:rgba( 46,184, 74,.10)!important; }
+    html[data-theme="nord"]     .theme-option[data-theme="nord"]     { color:var(--accent)!important;background:rgba(136,192,208,.12)!important; }
+    html[data-theme="tokyo"]    .theme-option[data-theme="tokyo"]    { color:var(--accent)!important;background:rgba(122,162,247,.12)!important; }
   </style>
 </head>
 <body>
   <nav class="navbar sticky-top">
-    <div class="container-xl d-flex align-items-center" style="gap:.4rem;height:52px;">
+    <div class="container-fluid px-4 d-flex align-items-center" style="gap:.4rem;height:52px;">
 
       <!-- Brand -->
       <a class="navbar-brand d-flex align-items-center gap-2 flex-shrink-0 me-1"
@@ -487,6 +631,31 @@
                        letter-spacing:-.5px;white-space:nowrap;">⌘K</span>
         </div>
       </form>
+
+      <!-- Theme picker -->
+      <div class="dropdown d-none d-lg-block">
+        <button type="button"
+                class="nav-link d-flex align-items-center justify-content-center"
+                style="width:32px;height:32px;border-radius:8px;padding:0;border:none;background:none;cursor:pointer;"
+                data-bs-toggle="dropdown" title="Changer de thème" id="theme-btn">
+          <i class="bi bi-circle-half" style="font-size:.95rem;"></i>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end" style="min-width:160px;padding:.35rem;">
+          <li>
+            <div class="dropdown-item-text pb-1"
+                 style="font-size:.64rem;font-weight:700;letter-spacing:.7px;text-transform:uppercase;color:var(--text-muted);">
+              Thème
+            </div>
+          </li>
+          <li><button class="dropdown-item theme-option d-flex align-items-center gap-2" data-theme="dark"     style="border-radius:5px;font-size:.8rem;"><span class="theme-swatch" style="background:#12100e;outline-color:#c9a96e;"></span>Sombre</button></li>
+          <li><button class="dropdown-item theme-option d-flex align-items-center gap-2" data-theme="light"    style="border-radius:5px;font-size:.8rem;"><span class="theme-swatch" style="background:#f4f0e8;outline-color:#8c6028;"></span>Clair</button></li>
+          <li><button class="dropdown-item theme-option d-flex align-items-center gap-2" data-theme="midnight" style="border-radius:5px;font-size:.8rem;"><span class="theme-swatch" style="background:#080c14;outline-color:#4a9eda;"></span>Minuit</button></li>
+          <li><button class="dropdown-item theme-option d-flex align-items-center gap-2" data-theme="cyber"    style="border-radius:5px;font-size:.8rem;"><span class="theme-swatch" style="background:#050f07;outline-color:#2eb84a;"></span>Cyber</button></li>
+          <li><hr class="dropdown-divider my-1"></li>
+          <li><button class="dropdown-item theme-option d-flex align-items-center gap-2" data-theme="nord"     style="border-radius:5px;font-size:.8rem;"><span class="theme-swatch" style="background:#2e3440;outline-color:#88c0d0;"></span>Nord</button></li>
+          <li><button class="dropdown-item theme-option d-flex align-items-center gap-2" data-theme="tokyo"    style="border-radius:5px;font-size:.8rem;"><span class="theme-swatch" style="background:#1a1b26;outline-color:#7aa2f7;"></span>Tokyo Night</button></li>
+        </ul>
+      </div>
 
       <!-- Right: Paramètres + user -->
       <div class="d-none d-lg-flex align-items-center gap-1 flex-shrink-0">
@@ -554,7 +723,7 @@
 
     <!-- Mobile collapse -->
     <div class="collapse" id="nav-mobile">
-      <div class="container-xl py-2" style="border-top:1px solid var(--border);">
+      <div class="container-fluid px-4 py-2" style="border-top:1px solid var(--border);">
         <form method="get" action="{{ url_for('ioc.index') }}" class="mb-2">
           <div class="input-group input-group-sm">
             <span class="input-group-text"
@@ -585,11 +754,23 @@
           <a href="{{ url_for('auth.login') }}" class="nav-link" style="padding:.3rem .65rem;">Connexion</a>
           {% endif %}
         </div>
+        <!-- Mobile theme picker -->
+        <div class="mt-2 pt-2" style="border-top:1px solid var(--border-subtle);">
+          <div style="font-size:.64rem;font-weight:700;letter-spacing:.7px;text-transform:uppercase;color:var(--text-muted);margin-bottom:.4rem;">Thème</div>
+          <div class="d-flex gap-1 flex-wrap">
+            <button class="theme-option" data-theme="dark"     style="font-size:.75rem;padding:.25rem .6rem;border-radius:6px;border:1px solid var(--border);background:var(--bg-elevated);color:var(--text-secondary);cursor:pointer;">Sombre</button>
+            <button class="theme-option" data-theme="light"    style="font-size:.75rem;padding:.25rem .6rem;border-radius:6px;border:1px solid var(--border);background:var(--bg-elevated);color:var(--text-secondary);cursor:pointer;">Clair</button>
+            <button class="theme-option" data-theme="midnight" style="font-size:.75rem;padding:.25rem .6rem;border-radius:6px;border:1px solid var(--border);background:var(--bg-elevated);color:var(--text-secondary);cursor:pointer;">Minuit</button>
+            <button class="theme-option" data-theme="cyber"    style="font-size:.75rem;padding:.25rem .6rem;border-radius:6px;border:1px solid var(--border);background:var(--bg-elevated);color:var(--text-secondary);cursor:pointer;">Cyber</button>
+            <button class="theme-option" data-theme="nord"     style="font-size:.75rem;padding:.25rem .6rem;border-radius:6px;border:1px solid var(--border);background:var(--bg-elevated);color:var(--text-secondary);cursor:pointer;">Nord</button>
+            <button class="theme-option" data-theme="tokyo"    style="font-size:.75rem;padding:.25rem .6rem;border-radius:6px;border:1px solid var(--border);background:var(--bg-elevated);color:var(--text-secondary);cursor:pointer;">Tokyo</button>
+          </div>
+        </div>
       </div>
     </div>
   </nav>
 
-  <div class="container-xl mt-4 mb-5">
+  <div class="container-fluid px-4 mt-4 mb-5">
     {% if current_user.is_authenticated and current_user.is_approved and not current_user.is_admin and not current_user.has_api_keys %}
     <div class="alert alert-warning d-flex align-items-center gap-2 mb-3" role="alert">
       <i class="bi bi-key-fill flex-shrink-0"></i>
@@ -626,6 +807,28 @@
         if (s) { s.focus(); s.select(); }
       }
     });
+
+    // ── Theme switcher ──────────────────────────────────────────
+    (function () {
+      function applyTheme(theme) {
+        var el = document.documentElement;
+        el.setAttribute('data-theme', theme);
+        el.setAttribute('data-bs-theme', theme === 'light' ? 'light' : 'dark');
+        localStorage.setItem('ioc-theme', theme);
+      }
+
+      document.addEventListener('click', function (e) {
+        var btn = e.target.closest('.theme-option');
+        if (!btn) return;
+        applyTheme(btn.dataset.theme);
+        // Close Bootstrap dropdown if open
+        var dd = btn.closest('.dropdown');
+        if (dd) {
+          var toggle = dd.querySelector('[data-bs-toggle="dropdown"]');
+          if (toggle) bootstrap.Dropdown.getOrCreateInstance(toggle).hide();
+        }
+      });
+    })();
   </script>
   {% block scripts %}{% endblock %}
 </body>

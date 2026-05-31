@@ -33,14 +33,13 @@ def _ioc_to_dict(record: IOCRecord, include_raw: bool = False) -> dict:
         "is_malicious": record.is_malicious,
         "verdict": record.verdict,
         "malware_family": record.malware_family,
-        "tlp": record.tlp or "WHITE",
         "tags": record.get_tags(),
         "score_breakdown": record.get_score_breakdown(),
         "view_count": record.view_count or 0,
         "enriched_at": record.enriched_at.isoformat() + "Z",
         "enriched_by": record.enriched_by,
-        "is_stale": record.is_stale,
         "paragraph": record.paragraph,
+        "paragraphs": record.get_paragraphs(),
     }
     if include_raw:
         d["raw_results"] = record.get_results()
@@ -113,6 +112,9 @@ def enrich_ioc():
     body = request.get_json(silent=True) or {}
     value = (body.get("ioc") or body.get("value") or "").strip()
     force = bool(body.get("force", False))
+    level = body.get("level", "standard")
+    if level not in ("brief", "standard", "detailed"):
+        level = "standard"
 
     if not value:
         return jsonify({"error": "Missing 'ioc' field in request body"}), 400
@@ -129,12 +131,12 @@ def enrich_ioc():
         return jsonify({"error": "Private or local address — no public intel available"}), 422
 
     existing = IOCRecord.query.filter_by(value=value).first()
-    if existing and not force and not existing.is_stale:
+    if existing and not force:
         return jsonify({"cached": True, **_ioc_to_dict(existing, include_raw=True)}), 200
 
     keys = g.api_user.get_api_keys()
     try:
-        ioc_type, raw, paragraph, threat_score, score_breakdown, malware_family = _enrich_ioc(value, keys=keys)
+        ioc_type, raw, paragraph, threat_score, score_breakdown, malware_family = _enrich_ioc(value, keys=keys, level=level)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception:
@@ -148,8 +150,7 @@ def enrich_ioc():
         existing.enriched_at = now
         existing.enriched_by = g.api_user.email
         existing.set_results(raw)
-        if paragraph is not None:
-            existing.paragraph = paragraph
+        existing.set_paragraph_level(level, paragraph)
         existing.threat_score = threat_score
         existing.malware_family = malware_family
         existing.verdict = "malicious" if threat_score > 0 else "clean"
@@ -160,12 +161,12 @@ def enrich_ioc():
             value=value,
             ioc_type=ioc_type,
             enriched_by=g.api_user.email,
-            paragraph=paragraph,
             threat_score=threat_score,
             malware_family=malware_family,
             verdict="malicious" if threat_score > 0 else "clean",
         )
         record.set_results(raw)
+        record.set_paragraph_level(level, paragraph)
         record.set_score_breakdown(score_breakdown)
         db.session.add(record)
 

@@ -76,7 +76,6 @@ def migrate_db():
     new_columns = [
         ("verdict",               "VARCHAR(20)"),
         ("malware_family",        "VARCHAR(120)"),
-        ("tlp",                   "VARCHAR(10)  DEFAULT 'WHITE'"),
         ("tags_json",             "TEXT"),
         ("score_breakdown_json",  "TEXT"),
     ]
@@ -282,7 +281,7 @@ def _do_regenerate_paragraphs(app) -> None:
                 results, threat_score=record.threat_score or 0, groq_key=groq_key
             )
             if paragraph:
-                record.paragraph = paragraph
+                record.set_paragraph_level("standard", paragraph)
                 db.session.commit()
                 updated += 1
                 log.info("[regen_paragraphs] %s — OK", record.value)

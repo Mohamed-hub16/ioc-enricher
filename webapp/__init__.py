@@ -146,9 +146,9 @@ def create_app() -> Flask:
         for _col_def in [
             "verdict VARCHAR(20)",
             "malware_family VARCHAR(120)",
-            "tlp VARCHAR(10) DEFAULT 'WHITE'",
             "tags_json TEXT",
             "score_breakdown_json TEXT",
+            "paragraphs_json TEXT",
         ]:
             try:
                 db.session.execute(db.text(f"ALTER TABLE ioc_records ADD COLUMN {_col_def}"))

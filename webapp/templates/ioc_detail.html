@@ -29,6 +29,287 @@
   {%- endif -%}
 {% endmacro %}
 
+{% macro render_file_table(files) %}
+<div style="overflow-x:auto;">
+  <table class="table table-sm mb-0" style="font-size:.74rem;border-collapse:separate;border-spacing:0;">
+    <thead>
+      <tr style="color:var(--text-muted);font-size:.7rem;">
+        <th class="px-2 py-1">Nom</th>
+        <th class="px-2 py-1">Type</th>
+        <th class="px-2 py-1">SHA256</th>
+        <th class="px-2 py-1">Détections</th>
+        <th class="px-2 py-1">Dernière vue</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in files %}
+      <tr>
+        <td class="px-2 py-1 ioc-value"
+            style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+            title="{{ f.name }}">{{ f.name }}</td>
+        <td class="px-2 py-1" style="color:var(--text-muted);white-space:nowrap;">{{ f.type or '—' }}</td>
+        <td class="px-2 py-1 ioc-value" style="font-size:.68rem;color:var(--text-muted);">{{ f.sha256 }}</td>
+        <td class="px-2 py-1" style="white-space:nowrap;">
+          {% if f.malicious > 0 %}
+            <span style="color:var(--danger);font-weight:600;">{{ f.malicious }}/{{ f.total }}</span>
+          {% else %}
+            <span style="color:var(--success);">0/{{ f.total }}</span>
+          {% endif %}
+        </td>
+        <td class="px-2 py-1" style="color:var(--text-muted);white-space:nowrap;">{{ f.last_seen or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+
+{% macro render_vendor_intel(vi) %}
+<div style="display:flex;flex-direction:column;gap:5px;">
+  {% for vendor, vdata in vi.items() %}
+
+  {# Normalise to a list of rows #}
+  {% if vdata is mapping %}
+    {% set rows = [vdata] %}
+  {% elif vdata is iterable and vdata is not string %}
+    {% set rows = vdata | list %}
+  {% else %}
+    {% set rows = [] %}
+  {% endif %}
+
+  {% if rows %}
+  {% set first = rows[0] %}
+
+  {# Resolve main verdict string #}
+  {% set vstr = (first.get('verdict') or first.get('detection') or first.get('status') or first.get('threat_name') or '') | string | lower %}
+  {% if 'malicious' in vstr %}
+    {% set vcol = '#f07070' %}{% set vbg = 'rgba(232,64,64,.12)' %}
+  {% elif 'suspicious' in vstr %}
+    {% set vcol = '#f0b060' %}{% set vbg = 'rgba(232,151,26,.12)' %}
+  {% elif vstr in ('known', 'clean', 'harmless') or 'known' in vstr or 'clean' in vstr %}
+    {% set vcol = '#6ee99e' %}{% set vbg = 'rgba(35,168,92,.10)' %}
+  {% else %}
+    {% set vcol = 'var(--text-muted)' %}{% set vbg = 'var(--bg-base)' %}
+  {% endif %}
+
+  <div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;">
+
+    {# ── Vendor header bar ── #}
+    <div style="background:var(--bg-base);padding:5px 10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:{% if rows|length > 1 or first.get('behaviour') or first.get('signatures') or first.get('details') %}1px solid var(--border){% else %}none{% endif %};">
+      <span style="font-weight:700;font-size:.78rem;color:var(--text-primary);min-width:110px;">{{ vendor }}</span>
+
+      {# Verdict badge #}
+      {% set vdisp = first.get('verdict') or first.get('detection') or first.get('status') or first.get('threat_name') %}
+      {% if vdisp %}
+      <span style="background:{{ vbg }};color:{{ vcol }};border:1px solid {{ vcol }}55;border-radius:4px;padding:.1rem .5rem;font-size:.7rem;font-weight:600;">
+        {{ vdisp }}
+      </span>
+      {% endif %}
+
+      {# Score / maliciousness / scanner ratio #}
+      {% if first.get('score') %}
+        <span style="font-size:.71rem;color:var(--text-muted);">score : {{ first.get('score') }}</span>
+      {% endif %}
+      {% if first.get('maliciousness') %}
+        <span style="font-size:.71rem;color:var(--text-muted);">maliciousness : {{ first.get('maliciousness') }}%</span>
+      {% endif %}
+      {% if first.get('scanner_match') and first.get('scanner_count') %}
+        <span style="font-size:.71rem;color:var(--text-muted);">{{ first.get('scanner_match') }}/{{ first.get('scanner_count') }} scanners{% if first.get('scanner_percent') %} ({{ first.get('scanner_percent') }}%){% endif %}</span>
+      {% endif %}
+      {% if first.get('first_seen') %}
+        <span style="font-size:.7rem;color:var(--text-muted);">vu le {{ first.get('first_seen')[:10] }}</span>
+      {% endif %}
+      {% if rows|length > 1 %}
+        <span style="font-size:.7rem;color:var(--text-muted);">{{ rows|length }} analyses</span>
+      {% endif %}
+
+      {# Link (right-aligned) #}
+      {% set lnk = first.get('analysis_url') or first.get('link') or first.get('url') %}
+      {% if lnk %}
+        <a href="{{ lnk }}" target="_blank" rel="noopener noreferrer"
+           style="margin-left:auto;font-size:.7rem;color:var(--accent);white-space:nowrap;">
+          <i class="bi bi-box-arrow-up-right me-1"></i>Rapport
+        </a>
+      {% endif %}
+    </div>
+
+    {# ── Multi-run table (ANY.RUN, Spamhaus…) ── #}
+    {% if rows|length > 1 %}
+    <div style="overflow-x:auto;">
+      <table class="table table-sm mb-0" style="font-size:.72rem;">
+        <thead>
+          <tr style="color:var(--text-muted);font-size:.68rem;">
+            <th class="px-2 py-1">Fichier / Source</th>
+            <th class="px-2 py-1">Verdict</th>
+            <th class="px-2 py-1">Tags</th>
+            <th class="px-2 py-1">Date</th>
+            <th class="px-2 py-1" style="width:32px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows[:8] %}
+          {% set rv = (row.get('verdict') or row.get('detection') or '') | lower %}
+          <tr>
+            <td class="px-2 py-1 ioc-value"
+                style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                title="{{ row.get('file_name','') }}">{{ (row.get('file_name') or '—')[:70] }}</td>
+            <td class="px-2 py-1" style="white-space:nowrap;">
+              <span style="color:{% if 'malicious' in rv %}var(--danger){% elif 'suspicious' in rv %}var(--warning){% else %}var(--text-muted){% endif %};font-size:.7rem;">
+                {{ row.get('verdict') or row.get('detection') or '—' }}
+              </span>
+            </td>
+            <td class="px-2 py-1">
+              {% for tag in (row.get('tags') or []) %}
+                <span class="badge me-1"
+                      style="background:var(--bg-elevated);color:var(--text-secondary);border:1px solid var(--border);font-size:.64rem;">{{ tag }}</span>
+              {% endfor %}
+            </td>
+            <td class="px-2 py-1" style="color:var(--text-muted);white-space:nowrap;font-size:.68rem;">
+              {{ (row.get('date') or '')[:10] }}
+            </td>
+            <td class="px-2 py-1">
+              {% set rl = row.get('analysis_url') or row.get('link') %}
+              {% if rl %}
+                <a href="{{ rl }}" target="_blank" rel="noopener noreferrer"
+                   style="color:var(--accent);font-size:.75rem;"><i class="bi bi-box-arrow-up-right"></i></a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          {% if rows|length > 8 %}
+          <tr>
+            <td colspan="5" class="px-2 py-1 text-center"
+                style="color:var(--text-muted);font-size:.7rem;font-style:italic;">
+              +{{ rows|length - 8 }} analyses supplémentaires
+            </td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    {# ── Behaviour list (vxCube) ── #}
+    {% if first.get('behaviour') %}
+    <div class="px-2 py-1" style="border-top:1px solid var(--border);">
+      <span style="font-size:.67rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em;">Comportements</span>
+      <div class="mt-1">
+        {% for b in first.get('behaviour', [])[:8] %}
+        <span class="badge me-1 mb-1"
+              style="background:var(--bg-elevated);color:{% if b.get('threat_level','') == 'malicious' %}var(--danger){% elif b.get('threat_level','') == 'suspicious' %}var(--warning){% else %}var(--text-secondary){% endif %};border:1px solid var(--border);font-size:.66rem;">
+          {{ b.get('rule','') }}
+        </span>
+        {% endfor %}
+        {% if first.get('behaviour')|length > 8 %}
+          <span style="font-size:.67rem;color:var(--text-muted);">+{{ first.get('behaviour')|length - 8 }} autres</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    {# ── Signatures (Triage) ── #}
+    {% if first.get('signatures') %}
+    <div class="px-2 py-1" style="border-top:1px solid var(--border);">
+      <span style="font-size:.67rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em;">Signatures</span>
+      <div class="mt-1">
+        {% for sig in first.get('signatures', [])[:8] %}
+        <span class="badge me-1 mb-1"
+              style="background:var(--bg-elevated);color:{% if sig.get('score') and sig.get('score')|int >= 5 %}var(--danger){% elif sig.get('score') and sig.get('score')|int >= 3 %}var(--warning){% else %}var(--text-secondary){% endif %};border:1px solid var(--border);font-size:.66rem;">
+          {{ sig.get('signature','') }}{% if sig.get('score') %} ({{ sig.get('score') }}){% endif %}
+        </span>
+        {% endfor %}
+        {% if first.get('signatures')|length > 8 %}
+          <span style="font-size:.67rem;color:var(--text-muted);">+{{ first.get('signatures')|length - 8 }} autres</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    {# ── Details (InQuest) ── #}
+    {% if first.get('details') %}
+    <div class="px-2 py-1" style="border-top:1px solid var(--border);">
+      {% for detail in first.get('details', [])[:3] %}
+      <div style="font-size:.72rem;color:var(--text-secondary);margin-bottom:2px;">
+        <span style="font-weight:600;">{{ detail.get('title','') }}</span>
+        {% if detail.get('description') %}
+          <span style="color:var(--text-muted);"> — {{ detail.get('description','')[:160] }}</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endmacro %}
+
+{% macro render_relationships(rels) %}
+{% set REL_LABELS = {
+  'execution_parents':    'Execution Parents (2025+)',
+  'pe_resource_parents':  'PE Resource Parents (2025+)',
+  'dropped_files':        'Dropped Files (2025+)',
+  'bundled_files':        'Bundled Files (2025+)',
+  'pe_resource_children': 'PE Children (2025+)',
+  'contacted_urls':       'URLs contactées',
+  'contacted_domains':    'Domaines contactés',
+  'contacted_ips':        'IPs contactées',
+} %}
+{% for rel_type, rel_data in rels.items() %}
+{% set rel_items = rel_data['items'] %}
+{% if rel_items %}
+<div class="mb-2">
+  <div class="px-2 py-1" style="font-size:.71rem;font-weight:600;color:var(--text-muted);background:var(--bg-base);border-radius:4px 4px 0 0;border:1px solid var(--border);">
+    {{ REL_LABELS.get(rel_type, rel_type) }}
+    <span style="font-weight:400;opacity:.7;">({{ rel_items | length }} affiché{{ 's' if rel_items | length > 1 else '' }}{% if rel_data.total and rel_data.total > rel_items | length %}, {{ rel_data.total }} total{% endif %})</span>
+  </div>
+  {% if rel_type in ('contacted_urls', 'contacted_domains', 'contacted_ips') %}
+  <div class="px-2 py-1" style="border:1px solid var(--border);border-top:none;border-radius:0 0 4px 4px;">
+    {% for item in rel_items %}
+    <span class="badge me-1 mb-1"
+          style="background:var(--bg-elevated);color:{% if item.malicious > 0 %}var(--danger){% else %}var(--text-secondary){% endif %};border:1px solid var(--border);font-size:.7rem;">
+      {{ item.name[:60] }}{% if item.malicious > 0 %} ({{ item.malicious }}/{{ item.total }}){% endif %}
+    </span>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div style="border:1px solid var(--border);border-top:none;border-radius:0 0 4px 4px;overflow-x:auto;">
+    <table class="table table-sm mb-0" style="font-size:.74rem;">
+      <thead>
+        <tr style="color:var(--text-muted);font-size:.7rem;">
+          <th class="px-2 py-1">Nom</th>
+          <th class="px-2 py-1">Type</th>
+          <th class="px-2 py-1">Détections</th>
+          <th class="px-2 py-1">Dernière vue</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in rel_items %}
+        <tr>
+          <td class="px-2 py-1 ioc-value"
+              style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+              title="{{ item.name }}">{{ item.name }}</td>
+          <td class="px-2 py-1" style="color:var(--text-muted);">{{ item.type or '—' }}</td>
+          <td class="px-2 py-1">
+            {% if item.malicious > 0 %}
+              <span style="color:var(--danger);font-weight:600;">{{ item.malicious }}/{{ item.total }}</span>
+            {% else %}
+              <span style="color:var(--success);">0/{{ item.total }}</span>
+            {% endif %}
+          </td>
+          <td class="px-2 py-1" style="color:var(--text-muted);">{{ item['last_seen'] or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+{% endfor %}
+{% endmacro %}
+
 {% block content %}
 
 {# ── Derived variables ───────────────────────────────────────── #}
@@ -42,11 +323,6 @@
 {% else %}
   {% set ring_color = '#e84040' %}{% set score_label = 'Risque élevé' %}{% set score_icon = 'shield-exclamation' %}
 {% endif %}
-{% set tlp = record.tlp or 'WHITE' %}
-{% if tlp == 'RED' %}{% set tlp_cls = 'tlp-red' %}
-{% elif tlp == 'AMBER' %}{% set tlp_cls = 'tlp-amber' %}
-{% elif tlp == 'GREEN' %}{% set tlp_cls = 'tlp-green' %}
-{% else %}{% set tlp_cls = 'tlp-white' %}{% endif %}
 {% set breakdown = record.get_score_breakdown() %}
 
 {# ── Breadcrumb ──────────────────────────────────────────────── #}
@@ -73,6 +349,22 @@
   {% endif %}
 </div>
 
+{# ── Visitor banner ──────────────────────────────────────────── #}
+{% if is_visitor %}
+<div class="d-flex align-items-center gap-3 mb-3 p-2 px-3"
+     style="background:rgba(201,169,110,.05);border:1px solid rgba(201,169,110,.18);
+            border-radius:8px;font-size:.76rem;">
+  <span style="color:var(--text-muted);flex:1;">
+    <i class="bi bi-eye me-1" style="color:var(--accent);"></i>
+    Aperçu visiteur — commentaires et auteurs masqués.
+  </span>
+  <a href="{{ url_for('auth.register') }}"
+     style="font-weight:600;color:var(--accent);text-decoration:none;white-space:nowrap;">
+    Créer un compte <i class="bi bi-arrow-right"></i>
+  </a>
+</div>
+{% endif %}
+
 {# ── Hero ────────────────────────────────────────────────────── #}
 <div class="mb-4">
   <div class="ioc-hero-value mb-2">{{ record.value }}</div>
@@ -85,7 +377,6 @@
     {% else %}
     <span class="verdict-ok"><i class="bi bi-shield-check me-1"></i>Légitime</span>
     {% endif %}
-    <span class="tlp-badge {{ tlp_cls }}">TLP:{{ tlp }}</span>
     {% if record.malware_family %}
     <a href="{{ url_for('ioc.pivot_family', family=record.malware_family) }}"
        class="text-decoration-none"
@@ -98,9 +389,6 @@
       #{{ tag }}
     </span>
     {% endfor %}
-    {% if record.is_stale %}
-    <span class="stale-badge"><i class="bi bi-clock-history me-1"></i>Données > 14 jours</span>
-    {% endif %}
   </div>
 </div>
 
@@ -188,7 +476,7 @@
   <div style="font-size:.78rem;color:var(--text-muted);">
     <i class="bi bi-clock me-1"></i>
     Enrichi le <strong style="color:var(--text-secondary);">{{ record.enriched_at.strftime('%d/%m/%Y à %H:%M') }} UTC</strong>
-    {% if record.enriched_by %}
+    {% if record.enriched_by and not is_visitor %}
     par <strong style="color:var(--text-secondary);">{{ record.enriched_by }}</strong>
     {% endif %}
   </div>
@@ -207,29 +495,7 @@
     </button>
   </form>
 
-  {# TLP + Tags (inline forms) #}
-  <form method="post" action="{{ url_for('ioc.set_tlp', value=record.value) }}" class="d-inline">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <select name="tlp" class="form-select form-select-sm d-inline-block w-auto"
-            onchange="this.form.submit()" style="font-size:.72rem;padding:.2rem .5rem;">
-      {% for t in ['WHITE','GREEN','AMBER','RED'] %}
-      <option value="{{ t }}" {% if t == tlp %}selected{% endif %}>TLP:{{ t }}</option>
-      {% endfor %}
-    </select>
-  </form>
-  <span tabindex="0" role="button"
-        data-bs-toggle="popover" data-bs-trigger="focus" data-bs-placement="bottom" data-bs-html="true"
-        data-bs-title="Traffic Light Protocol (TLP)"
-        data-bs-content="
-          <div style='font-size:.75rem;line-height:1.6;'>
-            <div class='mb-1'><span style='color:#fff;background:#cc0033;padding:.1rem .4rem;border-radius:3px;font-weight:600;'>RED</span>&nbsp; Confidentiel — destinataires directs uniquement, ne pas diffuser par écrit.</div>
-            <div class='mb-1'><span style='color:#000;background:#ffc000;padding:.1rem .4rem;border-radius:3px;font-weight:600;'>AMBER</span>&nbsp; Restreint — partager en interne sur base <em>need-to-know</em> uniquement.</div>
-            <div class='mb-1'><span style='color:#fff;background:#33aa00;padding:.1rem .4rem;border-radius:3px;font-weight:600;'>GREEN</span>&nbsp; Communauté — équipe SOC et partenaires CERT, pas de publication publique.</div>
-            <div><span style='color:#333;background:#e8e8e8;padding:.1rem .4rem;border-radius:3px;font-weight:600;'>WHITE</span>&nbsp; Public — aucune restriction, partage libre.</div>
-          </div>"
-        style="cursor:pointer;font-size:.72rem;color:var(--text-muted);padding:.1rem .3rem;
-               border:1px solid var(--border-subtle);border-radius:50%;line-height:1;
-               display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;">?</span>
+  {# Tags (inline form) #}
   <form method="post" action="{{ url_for('ioc.set_tags', value=record.value) }}" class="d-inline d-flex gap-1">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="text" name="tags" class="form-control form-control-sm"
@@ -255,15 +521,112 @@
   {% endif %}
 </div>
 
-{# ── AI Analysis ─────────────────────────────────────────────── #}
-{% if record.paragraph %}
+{# ── AI Analysis (multi-niveaux) ─────────────────────────────── #}
+{% set ANALYSIS_LEVELS = [
+  ('brief',    'Bref',     "2-3 phrases — l'essentiel",            'lightning-charge'),
+  ('standard', 'Standard', 'Analyse complète',                     'file-text'),
+  ('detailed', 'Détaillé', 'Maximum de détail et de corrélations', 'diagram-3'),
+] %}
 <div class="mb-4">
-  <div class="section-label">
-    <i class="bi bi-cpu me-1" style="color:var(--accent);"></i>Analyse IA — Groq · llama-3.3-70b
+  <div class="section-label d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <span><i class="bi bi-cpu me-1" style="color:var(--accent);"></i>Analyse IA — Groq · llama-3.3-70b</span>
+    <span tabindex="0" role="button"
+          data-bs-toggle="popover" data-bs-trigger="focus" data-bs-placement="bottom" data-bs-html="true"
+          data-bs-title="Niveaux d'analyse"
+          data-bs-content="
+            <div style='font-size:.75rem;line-height:1.6;'>
+              <div class='mb-1'><i class='bi bi-lightning-charge' style='color:#c9a96e;'></i> <strong>Bref</strong> — synthèse en 2-3 phrases, le verdict et l'essentiel.</div>
+              <div class='mb-1'><i class='bi bi-file-text' style='color:#c9a96e;'></i> <strong>Standard</strong> — analyse SOC complète (niveau par défaut).</div>
+              <div><i class='bi bi-diagram-3' style='color:#c9a96e;'></i> <strong>Détaillé</strong> — exploitation maximale des données et corrélations entre sources.</div>
+              <hr style='margin:.4rem 0;opacity:.2;'>
+              <div style='color:#8a7e6e;'>Toutes les analyses s'appuient sur les mêmes données déjà collectées — générer un niveau ne reconsomme aucun quota d'enrichissement.</div>
+            </div>"
+          style="cursor:pointer;font-size:.72rem;color:var(--text-muted);
+                 border:1px solid var(--border-subtle);border-radius:50%;line-height:1;
+                 display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;">?</span>
   </div>
-  <p class="paragraph-box mb-0">{{ record.paragraph }}</p>
+
+  {# Tabs: available levels switch instantly, missing levels are generate buttons #}
+  <div class="d-flex gap-1 flex-wrap mt-2 mb-2" id="analysis-tabs">
+    {% for key, label, desc, icon in ANALYSIS_LEVELS %}
+      {% if key in paragraphs %}
+      <div class="d-inline-flex align-items-center atab-group">
+        <button type="button" class="atab {% if key == active_level %}active{% endif %}"
+                data-level="{{ key }}" title="{{ desc }}">
+          <i class="bi bi-{{ icon }} me-1"></i>{{ label }}
+        </button>
+        {% if current_user.is_authenticated and current_user.is_approved and has_groq %}
+        <form method="post" action="{{ url_for('ioc.generate_analysis', value=record.value) }}"
+              class="d-inline atab-gen-form" style="margin:0;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="level" value="{{ key }}">
+          <button type="submit" class="atab atab-regen"
+                  title="Regénérer l'analyse {{ label }}">
+            <i class="bi bi-arrow-clockwise"></i>
+          </button>
+        </form>
+        {% endif %}
+      </div>
+      {% else %}
+        {% if current_user.is_authenticated and current_user.is_approved %}
+        <form method="post" action="{{ url_for('ioc.generate_analysis', value=record.value) }}"
+              class="d-inline atab-gen-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="level" value="{{ key }}">
+          <button type="submit" class="atab atab-missing"
+                  title="{% if has_groq %}Générer l'analyse {{ label }} — {{ desc }}{% else %}Configurez une clé Groq pour générer cette analyse{% endif %}"
+                  {% if not has_groq %}disabled{% endif %}>
+            <i class="bi bi-plus-lg me-1"></i>{{ label }}
+          </button>
+        </form>
+        {% endif %}
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  {# Panels #}
+  {% if paragraphs %}
+    {% for key, label, desc, icon in ANALYSIS_LEVELS %}
+      {% if key in paragraphs %}
+      <p class="paragraph-box mb-0 analysis-panel" data-level="{{ key }}"
+         {% if key != active_level %}style="display:none;"{% endif %}>{{ paragraphs[key] }}</p>
+      {% endif %}
+    {% endfor %}
+  {% else %}
+    <p class="mb-0" style="font-size:.8rem;color:var(--text-muted);">
+      <i class="bi bi-info-circle me-1"></i>Aucune analyse IA pour cet IOC.
+      {% if has_groq %}Cliquez sur un niveau ci-dessus pour en générer une.
+      {% else %}Configurez une clé Groq dans vos paramètres pour en générer une.{% endif %}
+    </p>
+  {% endif %}
 </div>
-{% endif %}
+
+<style>
+  .atab {
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    color: var(--text-secondary); border-radius: 7px;
+    font-size: .74rem; font-weight: 600; padding: .3rem .7rem;
+    cursor: pointer; transition: all .12s; display: inline-flex; align-items: center;
+  }
+  .atab:hover { color: var(--text-primary); border-color: var(--text-muted); }
+  .atab.active {
+    background: rgba(201,169,110,.12); border-color: var(--accent); color: var(--accent);
+  }
+  .atab-missing {
+    background: transparent; border-style: dashed; color: var(--text-muted);
+  }
+  .atab-missing:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .atab-missing:disabled { opacity: .4; cursor: not-allowed; }
+  .atab-gen-form { margin: 0; }
+  .atab-group { gap: 2px; }
+  .atab-group .atab:first-child { border-radius: 7px 3px 3px 7px; }
+  .atab-regen {
+    padding: .3rem .45rem; background: transparent;
+    border-style: dashed; color: var(--text-muted);
+    border-radius: 3px 7px 7px 3px; font-size: .7rem;
+  }
+  .atab-regen:hover { color: var(--accent); border-color: var(--accent); background: rgba(201,169,110,.06); }
+</style>
 
 {# ── Summary table ───────────────────────────────────────────── #}
 {% if summary %}
@@ -381,7 +744,18 @@
               <tr>
                 <td style="width:28%;white-space:nowrap;color:var(--text-muted);padding:.5rem .75rem;vertical-align:top;">
                   {% if k == 'malicious_vendors' %}
-                  <span style="color:var(--danger);font-weight:600;">Scanners détecteurs</span>
+                    <span style="color:var(--danger);font-weight:600;">Scanners détecteurs</span>
+                  {% elif k == 'communicating_files' %}
+                    <span style="color:var(--accent);font-weight:600;">Communicating Files<br>
+                    <span style="font-size:.68rem;font-weight:400;opacity:.7;">(2025+)</span></span>
+                  {% elif k == 'referrer_files' %}
+                    <span style="color:var(--accent);font-weight:600;">Files Referring<br>
+                    <span style="font-size:.68rem;font-weight:400;opacity:.7;">(2025+)</span></span>
+                  {% elif k == 'relationships' %}
+                    <span style="color:var(--accent);font-weight:600;">Relations fichiers<br>
+                    <span style="font-size:.68rem;font-weight:400;opacity:.7;">(fichiers : 2025+)</span></span>
+                  {% elif k == 'vendor_intel' %}
+                    <span style="color:var(--accent);font-weight:600;">Vendor Intel</span>
                   {% else %}{{ k }}{% endif %}
                 </td>
                 <td style="padding:.5rem .75rem;">
@@ -392,6 +766,12 @@
                         {{ vendor }}
                       </span>
                     {% endfor %}
+                  {% elif k in ('communicating_files', 'referrer_files') %}
+                    {{ render_file_table(v) }}
+                  {% elif k == 'relationships' %}
+                    {{ render_relationships(v) }}
+                  {% elif k == 'vendor_intel' %}
+                    {{ render_vendor_intel(v) }}
                   {% else %}
                     {{ render_val(v) }}
                   {% endif %}
@@ -411,6 +791,7 @@
 {% endif %}
 
 {# ── Comments ────────────────────────────────────────────────── #}
+{% if not is_visitor %}
 {% set all_comments = record.comments.all() %}
 <div class="mb-4">
   <div class="section-label">
@@ -455,6 +836,28 @@
   </form>
   {% endif %}
 </div>
+{% else %}
+<div class="mb-4 p-3"
+     style="background:rgba(201,169,110,.04);border:1px dashed var(--border);
+            border-radius:10px;text-align:center;">
+  <i class="bi bi-lock" style="font-size:1.1rem;color:var(--text-muted);display:block;margin-bottom:.4rem;opacity:.5;"></i>
+  <div style="font-size:.78rem;color:var(--text-muted);">
+    Les commentaires des analystes sont réservés aux membres connectés.
+  </div>
+  <div class="mt-2 d-flex justify-content-center gap-2">
+    <a href="{{ url_for('auth.login', next=request.path) }}"
+       style="font-size:.74rem;font-weight:600;padding:.3rem .75rem;border-radius:7px;
+              background:var(--accent);color:#12100e;text-decoration:none;">
+      <i class="bi bi-box-arrow-in-right me-1"></i>Connexion
+    </a>
+    <a href="{{ url_for('auth.register') }}"
+       style="font-size:.74rem;font-weight:500;padding:.3rem .7rem;border-radius:7px;
+              border:1px solid var(--border);color:var(--text-secondary);text-decoration:none;">
+      Créer un compte
+    </a>
+  </div>
+</div>
+{% endif %}
 
 {% endblock %}
 
@@ -480,6 +883,33 @@
     btn.disabled = true;
   });
 
+  /* ─── Analysis-level tabs ─── */
+  (function () {
+    const tabs   = document.querySelectorAll('#analysis-tabs .atab[data-level]');
+    const panels = document.querySelectorAll('.analysis-panel');
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const lvl = tab.dataset.level;
+        tabs.forEach(t => t.classList.toggle('active', t === tab));
+        panels.forEach(p => { p.style.display = (p.dataset.level === lvl) ? '' : 'none'; });
+        try {
+          const u = new URL(window.location);
+          u.searchParams.set('level', lvl);
+          history.replaceState(null, '', u);
+        } catch (_) {}
+      });
+    });
+    document.querySelectorAll('.atab-gen-form').forEach(f => {
+      f.addEventListener('submit', () => {
+        const btn = f.querySelector('button');
+        if (btn) {
+          btn.disabled = true;
+          btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" style="width:.7rem;height:.7rem;"></span>…';
+        }
+      });
+    });
+  })();
+
   document.getElementById('graph-toggle').addEventListener('click', function() {
     const wrap = document.getElementById('graph-wrap');
     const icon = document.getElementById('graph-icon');
@@ -495,6 +925,18 @@
 
   (function buildGraph() {
     if (typeof vis === 'undefined') return;
+
+    // Read theme-aware colours from CSS variables
+    const _cs = getComputedStyle(document.documentElement);
+    const _cv = (v) => _cs.getPropertyValue(v).trim();
+    const isLight   = document.documentElement.getAttribute('data-theme') === 'light';
+    const fontColor = _cv('--text-primary')   || '#dde1f0';
+    const edgeColor = _cv('--border')         || '#252d48';
+    const edgeLbl   = _cv('--text-muted')     || '#7a88ae';
+    const accentCol = _cv('--accent')         || '#c9a96e';
+    // Box group labels need darker text on light canvas to stay readable
+    const catParentFont = isLight ? '#5c2090' : '#9b72cf';
+    const catChildFont  = isLight ? '#1055a0' : '#60a5fa';
 
     const isHash = IOC_TYPE === 'hash';
     let nid = 1;
@@ -688,8 +1130,13 @@
           (d.tags || []).slice(0, 4).forEach(t => addEdge(0, newNode({ label: '#' + t, title: 'Tag VirusTotal', group: 'tag' }), 'tag'));
           (d.communicating_files || []).slice(0, 4).forEach(f => {
             addEdge(0, newNode({ label: '📄 ' + trunc(f.name || f.sha256 || '', 18),
-              title: (f.type || 'fichier') + ' — ' + f.malicious + '/' + f.total + ' détections',
+              title: (f.type || 'fichier') + ' — ' + f.malicious + '/' + f.total + ' détections' + (f.last_seen ? '\n' + f.last_seen : ''),
               group: f.malicious > 0 ? 'file_mal' : 'file' }), 'comm.');
+          });
+          (d.referrer_files || []).slice(0, 4).forEach(f => {
+            addEdge(newNode({ label: '🔗 ' + trunc(f.name || f.sha256 || '', 18),
+              title: 'Référence cet IOC — ' + (f.type || 'fichier') + '\n' + f.malicious + '/' + f.total + ' détections' + (f.last_seen ? '\n' + f.last_seen : ''),
+              group: f.malicious > 0 ? 'file_mal' : 'file' }), 0, 'réfère');
           });
           if (d.signature_info) {
             const sub = d.signature_info.subject || '';
@@ -763,8 +1210,8 @@
     const GROUPS = {
       ioc_mal:     { color: { background: '#e84040', border: '#ff6b6b' }, shape: 'diamond', size: 28, font: { bold: true, color: '#fff' } },
       ioc_ok:      { color: { background: '#23a85c', border: '#5cb85c' }, shape: 'diamond', size: 28, font: { bold: true, color: '#fff' } },
-      cat_parent:  { color: { background: '#1e2a3a', border: '#6741a8' }, shape: 'box', font: { color: '#9b72cf', size: 11 } },
-      cat_child:   { color: { background: '#1a2535', border: '#1d6fa4' }, shape: 'box', font: { color: '#60a5fa', size: 11 } },
+      cat_parent:  { color: { background: '#1e2a3a', border: '#6741a8' }, shape: 'box', font: { color: catParentFont, size: 11 } },
+      cat_child:   { color: { background: '#1a2535', border: '#1d6fa4' }, shape: 'box', font: { color: catChildFont,  size: 11 } },
       geo:         { color: { background: '#1d6fa4', border: '#4facde' }, shape: 'dot', size: 16 },
       network:     { color: { background: '#6741a8', border: '#9b72cf' }, shape: 'dot', size: 16 },
       port:        { color: { background: '#d29922', border: '#f0c14b' }, shape: 'triangleDown', size: 14 },
@@ -787,8 +1234,8 @@
     };
 
     const commonEdge = {
-      font: { color: '#7a88ae', size: 9, strokeWidth: 0 },
-      color: { color: '#252d48', highlight: '#c9a96e' },
+      font: { color: edgeLbl, size: 9, strokeWidth: 0 },
+      color: { color: edgeColor, highlight: accentCol },
       arrows: { to: { enabled: true, scaleFactor: 0.6 } },
     };
 
@@ -801,14 +1248,14 @@
         }
       },
       physics: { enabled: false },
-      nodes: { font: { color: '#dde1f0', size: 11 }, borderWidth: 2, borderWidthSelected: 3 },
+      nodes: { font: { color: fontColor, size: 11 }, borderWidth: 2, borderWidthSelected: 3 },
       edges: { ...commonEdge, smooth: { type: 'cubicBezier', forceDirection: 'horizontal', roundness: 0.4 } },
       groups: GROUPS,
       interaction: { hover: true, tooltipDelay: 80, zoomView: true, dragView: true },
     };
 
     const forceOpts = {
-      nodes: { font: { color: '#dde1f0', size: 12 }, borderWidth: 2 },
+      nodes: { font: { color: fontColor, size: 12 }, borderWidth: 2 },
       edges: { ...commonEdge, smooth: { type: 'continuous', roundness: 0.3 }, length: 135 },
       groups: GROUPS,
       physics: {

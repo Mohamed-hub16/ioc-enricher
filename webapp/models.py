@@ -93,13 +93,13 @@ class IOCRecord(db.Model):
     enriched_at = db.Column(db.DateTime, default=datetime.utcnow)
     enriched_by = db.Column(db.String(120), nullable=True)
     raw_results = db.Column(db.Text, nullable=True)
-    paragraph = db.Column(db.Text, nullable=True)
+    paragraph = db.Column(db.Text, nullable=True)  # legacy: kept synced to the default level
+    paragraphs_json = db.Column(db.Text, nullable=True)  # {"brief":…, "standard":…, "detailed":…}
     threat_score = db.Column(db.Integer, default=0, nullable=False, server_default="0")
     view_count = db.Column(db.Integer, default=0, nullable=False, server_default="0")
     # Extended fields from PR #1
     verdict = db.Column(db.String(20), nullable=True)           # malicious | suspicious | clean
     malware_family = db.Column(db.String(120), nullable=True)   # e.g. "Cobalt Strike"
-    tlp = db.Column(db.String(10), nullable=True, default="WHITE")  # TLP 2.0: RED/AMBER/GREEN/WHITE
     tags_json = db.Column(db.Text, nullable=True)               # JSON list of analyst tags
     score_breakdown_json = db.Column(db.Text, nullable=True)    # JSON dict per-source scores
 
@@ -108,6 +108,22 @@ class IOCRecord(db.Model):
 
     def set_results(self, results: list[dict]) -> None:
         self.raw_results = json.dumps(results, ensure_ascii=False)
+
+    def get_paragraphs(self) -> dict:
+        """Available AI analyses keyed by level. Falls back to legacy .paragraph as 'standard'."""
+        data = json.loads(self.paragraphs_json) if self.paragraphs_json else {}
+        if not data and self.paragraph:
+            data = {"standard": self.paragraph}
+        return {k: v for k, v in data.items() if v}
+
+    def set_paragraph_level(self, level: str, text: str | None) -> None:
+        """Store one analysis level; keep legacy .paragraph synced to the best default."""
+        if not text:
+            return
+        data = json.loads(self.paragraphs_json) if self.paragraphs_json else {}
+        data[level] = text
+        self.paragraphs_json = json.dumps(data, ensure_ascii=False)
+        self.paragraph = data.get("standard") or data.get("detailed") or data.get("brief")
 
     def get_tags(self) -> list[str]:
         return json.loads(self.tags_json) if self.tags_json else []
@@ -124,10 +140,6 @@ class IOCRecord(db.Model):
     @property
     def age_days(self) -> int:
         return (datetime.utcnow() - self.enriched_at).days
-
-    @property
-    def is_stale(self) -> bool:
-        return self.age_days >= STALE_DAYS
 
     @property
     def is_malicious(self) -> bool:

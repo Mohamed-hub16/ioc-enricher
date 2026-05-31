@@ -1,11 +1,19 @@
 """VirusTotal enricher — https://www.virustotal.com (free tier: 500 req/day)"""
 
+import datetime as _dt
 import os
 import httpx
 from src.models import IOC, EnrichmentResult
 
 _BASE = "https://www.virustotal.com/api/v3"
 _TIMEOUT = 15.0
+_CUTOFF_TS = int(_dt.datetime(2025, 1, 1, tzinfo=_dt.timezone.utc).timestamp())
+
+# Relationship types that return file objects (have last_submission_date)
+_FILE_REL_TYPES = frozenset({
+    "execution_parents", "pe_resource_parents",
+    "dropped_files", "bundled_files", "pe_resource_children",
+})
 
 
 def _extract_detections(last_analysis_results: dict) -> tuple[list[str], list[str]]:
@@ -20,13 +28,22 @@ def _extract_detections(last_analysis_results: dict) -> tuple[list[str], list[st
     return sorted(vendors), sorted(labels)
 
 
-def _get_related_files(ip: str, api_key: str) -> list[dict]:
-    """Fetch top communicating files for an IP (separate API call)."""
+def _ts_to_date(v) -> str:
+    if not v:
+        return ""
+    try:
+        return _dt.datetime.utcfromtimestamp(int(v)).strftime("%Y-%m-%d")
+    except Exception:
+        return str(v)
+
+
+def _get_recent_files(resource_path: str, rel_type: str, api_key: str) -> list[dict]:
+    """Fetch communicating_files or referrer_files filtered to 2025+."""
     try:
         resp = httpx.get(
-            f"{_BASE}/ip_addresses/{ip}/communicating_files",
+            f"{_BASE}/{resource_path}/{rel_type}",
             headers={"x-apikey": api_key},
-            params={"limit": 5},
+            params={"limit": 40},
             timeout=_TIMEOUT,
         )
         if resp.status_code != 200:
@@ -34,15 +51,19 @@ def _get_related_files(ip: str, api_key: str) -> list[dict]:
         result = []
         for item in resp.json().get("data", []):
             attrs = item.get("attributes", {})
+            last_sub = int(attrs.get("last_submission_date") or 0)
+            if last_sub < _CUTOFF_TS:
+                continue
             stats = attrs.get("last_analysis_stats", {})
             mal = stats.get("malicious", 0)
             tot = sum(stats.values()) if stats else 0
             result.append({
                 "name": attrs.get("meaningful_name") or attrs.get("name") or "—",
                 "type": attrs.get("type_description") or attrs.get("magic") or "—",
-                "sha256": (attrs.get("sha256") or "")[:20] + "…",
+                "sha256": (attrs.get("sha256") or "")[:16] + "…",
                 "malicious": mal,
                 "total": tot,
+                "last_seen": _ts_to_date(last_sub),
             })
         return result
     except Exception:
@@ -50,19 +71,19 @@ def _get_related_files(ip: str, api_key: str) -> list[dict]:
 
 
 _HASH_RELATIONSHIPS = [
-    ("execution_parents",    5),
-    ("pe_resource_parents",  5),
-    ("contacted_urls",       5),
-    ("contacted_domains",    8),
-    ("contacted_ips",        8),
-    ("dropped_files",        8),
-    ("bundled_files",        5),
-    ("pe_resource_children", 5),
+    ("execution_parents",    40),
+    ("pe_resource_parents",  40),
+    ("contacted_urls",        5),
+    ("contacted_domains",     8),
+    ("contacted_ips",         8),
+    ("dropped_files",        40),
+    ("bundled_files",        40),
+    ("pe_resource_children", 40),
 ]
 
 
 def _get_file_relationships(file_hash: str, api_key: str) -> dict:
-    """Fetch top related entities for a hash: parents, network contacts, children."""
+    """Fetch related entities for a hash. File-type rels are filtered to 2025+."""
     result = {}
     for rel_type, limit in _HASH_RELATIONSHIPS:
         try:
@@ -80,6 +101,10 @@ def _get_file_relationships(file_hash: str, api_key: str) -> dict:
             items = []
             for item in body.get("data", []):
                 attrs = item.get("attributes", {})
+                last_sub = int(attrs.get("last_submission_date") or 0)
+                # Filter file-type rels to 2025+
+                if rel_type in _FILE_REL_TYPES and last_sub < _CUTOFF_TS:
+                    continue
                 stats = attrs.get("last_analysis_stats", {})
                 mal = stats.get("malicious", 0)
                 tot = sum(stats.values()) if stats else 0
@@ -91,12 +116,15 @@ def _get_file_relationships(file_hash: str, api_key: str) -> dict:
                     name = (attrs.get("meaningful_name") or
                             attrs.get("name") or
                             item.get("id", "")[:20])
-                items.append({
+                entry = {
                     "name": (name or "")[:100],
                     "malicious": mal,
                     "total": tot,
                     "type": attrs.get("type_description") or attrs.get("type_tag") or "",
-                })
+                }
+                if rel_type in _FILE_REL_TYPES:
+                    entry["last_seen"] = _ts_to_date(last_sub) if last_sub else ""
+                items.append(entry)
             if total or items:
                 result[rel_type] = {"total": total, "items": items}
         except Exception:
@@ -192,9 +220,12 @@ def enrich(ioc: IOC, keys: dict | None = None) -> EnrichmentResult:
             "ids_rules": ids_rules,
         })
 
-        comm_files = _get_related_files(ioc.value, api_key)
+        comm_files = _get_recent_files(f"ip_addresses/{ioc.value}", "communicating_files", api_key)
         if comm_files:
             data["communicating_files"] = comm_files
+        ref_files = _get_recent_files(f"ip_addresses/{ioc.value}", "referrer_files", api_key)
+        if ref_files:
+            data["referrer_files"] = ref_files
 
     elif ioc.type == "domain":
         data.update({
@@ -203,17 +234,13 @@ def enrich(ioc: IOC, keys: dict | None = None) -> EnrichmentResult:
             "categories": attrs.get("categories", {}),
             "whois": (attrs.get("whois", "") or "")[:500],
         })
+        comm_files = _get_recent_files(f"domains/{ioc.value}", "communicating_files", api_key)
+        if comm_files:
+            data["communicating_files"] = comm_files
+        ref_files = _get_recent_files(f"domains/{ioc.value}", "referrer_files", api_key)
+        if ref_files:
+            data["referrer_files"] = ref_files
     elif ioc.type == "hash":
-        import datetime as _dt
-
-        def _ts(v):
-            if not v:
-                return None
-            try:
-                return _dt.datetime.utcfromtimestamp(int(v)).strftime("%Y-%m-%d")
-            except Exception:
-                return str(v)
-
         data.update({
             "meaningful_name": attrs.get("meaningful_name"),
             "names": (attrs.get("names") or [])[:10],
@@ -226,8 +253,8 @@ def enrich(ioc: IOC, keys: dict | None = None) -> EnrichmentResult:
             "ssdeep": attrs.get("ssdeep"),
             "tlsh": attrs.get("tlsh"),
             "vhash": attrs.get("vhash"),
-            "first_submission_date": _ts(attrs.get("first_submission_date")),
-            "last_submission_date": _ts(attrs.get("last_submission_date")),
+            "first_submission_date": _ts_to_date(attrs.get("first_submission_date")),
+            "last_submission_date": _ts_to_date(attrs.get("last_submission_date")),
             "times_submitted": attrs.get("times_submitted"),
             "unique_sources": attrs.get("unique_sources"),
         })

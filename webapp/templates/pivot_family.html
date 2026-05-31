@@ -215,12 +215,6 @@
         {%- if score > 30 -%}{%- set ring_color = '#e84040' -%}{%- set row_cls = 'mal' -%}
         {%- elif score > 0 -%}{%- set ring_color = '#e8971a' -%}{%- set row_cls = 'susp' -%}
         {%- else -%}{%- set ring_color = '#23a85c' -%}{%- set row_cls = 'ok' -%}{%- endif -%}
-        {%- set tlp = r.tlp or 'WHITE' -%}
-        {%- if tlp == 'RED' -%}{%- set tlp_cls = 'tlp-red' -%}
-        {%- elif tlp == 'AMBER' -%}{%- set tlp_cls = 'tlp-amber' -%}
-        {%- elif tlp == 'GREEN' -%}{%- set tlp_cls = 'tlp-green' -%}
-        {%- else -%}{%- set tlp_cls = 'tlp-white' -%}{%- endif -%}
-
       <a href="{{ url_for('ioc.detail', value=r.value) }}"
          class="ioc-row {{ row_cls }}">
 
@@ -249,7 +243,6 @@
               <i class="bi bi-shield-check me-1"></i>ok
             </span>
             {% endif %}
-            <span class="tlp-badge {{ tlp_cls }}" style="font-size:.58rem;">TLP:{{ tlp }}</span>
             {% if r.malware_family %}
             <span style="font-size:.65rem;color:var(--warning);background:rgba(232,151,26,.1);
                          border-radius:4px;padding:.05rem .35rem;">{{ r.malware_family }}</span>

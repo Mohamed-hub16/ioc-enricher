@@ -236,6 +236,34 @@
             </span>
           </label>
 
+          {# Niveau d'analyse #}
+          <div id="analysis-level-block" style="padding-left:1.55rem;">
+            <div class="d-flex gap-2 flex-wrap" id="alvl-selector">
+              {% for lv, lbl, desc in [
+                ('brief',    'Bref',     "2-3 phrases, l'essentiel"),
+                ('standard', 'Standard', 'analyse complète'),
+                ('detailed', 'Détaillé', 'max de détail + corrélations'),
+              ] %}
+              <label style="cursor:pointer;margin:0;" title="{{ desc }}">
+                <input type="radio" name="analysis_level" value="{{ lv }}"
+                       class="alvl-radio" style="display:none;"
+                       {% if lv == 'standard' %}checked{% endif %}>
+                <span class="alvl-pill"
+                      style="display:inline-block;font-size:.68rem;font-weight:600;
+                             padding:.22rem .6rem;border-radius:6px;cursor:pointer;
+                             transition:all .12s;border:1.5px solid var(--border);
+                             color:var(--text-secondary);
+                             {% if lv == 'standard' %}border-color:var(--accent);color:var(--accent);background:rgba(201,169,110,.1);{% endif %}">
+                  {{ lbl }}
+                </span>
+              </label>
+              {% endfor %}
+            </div>
+            <div style="font-size:.63rem;color:var(--text-muted);margin-top:.3rem;">
+              Les niveaux non générés ici pourront l'être ensuite depuis la fiche de l'IOC.
+            </div>
+          </div>
+
           <hr style="border-color:var(--border-subtle);margin:.1rem 0;">
 
           {# Pré-tagger #}
@@ -260,38 +288,6 @@
               Entrée ou <kbd style="font-size:.6rem;padding:.1rem .3rem;
                 background:var(--bg-elevated);border:1px solid var(--border);border-radius:3px;">,</kbd>
               pour valider · clic pour supprimer
-            </div>
-          </div>
-
-          <hr style="border-color:var(--border-subtle);margin:.1rem 0;">
-
-          {# TLP #}
-          <div class="d-flex align-items-center gap-2 flex-wrap">
-            <span style="font-size:.78rem;font-weight:600;color:var(--text-secondary);">
-              TLP par défaut
-            </span>
-            <div class="d-flex gap-2 ms-auto flex-wrap" id="tlp-selector">
-              {% for tv, tc, tbg in [
-                ('WHITE', 'rgba(138,126,110,.75)', 'rgba(138,126,110,.12)'),
-                ('GREEN', 'rgba(35,168,92,.85)',   'rgba(35,168,92,.12)'),
-                ('AMBER', 'rgba(232,151,26,.9)',    'rgba(232,151,26,.12)'),
-                ('RED',   'rgba(232,64,64,.9)',     'rgba(232,64,64,.12)'),
-              ] %}
-              <label style="cursor:pointer;margin:0;">
-                <input type="radio" name="default_tlp" value="{{ tv }}"
-                       class="tlp-radio" style="display:none;"
-                       {% if tv == 'WHITE' %}checked{% endif %}>
-                <span class="tlp-pill"
-                      data-col="{{ tc }}" data-bg="{{ tbg }}"
-                      style="display:inline-block;font-size:.62rem;font-weight:700;
-                             padding:.2rem .55rem;border-radius:5px;cursor:pointer;
-                             transition:background .12s;letter-spacing:.3px;
-                             border:1.5px solid {{ tc }};color:{{ tc }};
-                             {% if tv == 'WHITE' %}background:{{ tbg }};{% else %}background:transparent;{% endif %}">
-                  TLP:{{ tv }}
-                </span>
-              </label>
-              {% endfor %}
             </div>
           </div>
 
@@ -677,15 +673,31 @@
   tagInput.addEventListener('blur', () => { if (tagInput.value.trim()) addTag(tagInput.value); });
   tagWrapper.addEventListener('click', () => tagInput.focus());
 
-  /* ─── TLP pills ─── */
-  document.querySelectorAll('.tlp-radio').forEach(r => {
+  /* ─── Analysis-level pills ─── */
+  document.querySelectorAll('.alvl-radio').forEach(r => {
     r.addEventListener('change', () => {
-      document.querySelectorAll('.tlp-pill').forEach(p => {
-        const active = p.closest('label').querySelector('.tlp-radio').checked;
-        p.style.background = active ? p.dataset.bg : 'transparent';
+      document.querySelectorAll('.alvl-pill').forEach(p => {
+        const active = p.closest('label').querySelector('.alvl-radio').checked;
+        if (active) {
+          p.style.borderColor = 'var(--accent)';
+          p.style.color = 'var(--accent)';
+          p.style.background = 'rgba(201,169,110,.1)';
+        } else {
+          p.style.borderColor = 'var(--border)';
+          p.style.color = 'var(--text-secondary)';
+          p.style.background = 'transparent';
+        }
       });
     });
   });
+
+  /* ─── Hide level block when AI generation is off ─── */
+  const alvlBlock = document.getElementById('analysis-level-block');
+  function syncAlvlBlock() {
+    if (alvlBlock) alvlBlock.style.display = (genAiChk && genAiChk.checked) ? '' : 'none';
+  }
+  if (genAiChk) genAiChk.addEventListener('change', syncAlvlBlock);
+  syncAlvlBlock();
 
   /* ─── Cache / Force linked checkboxes ─── */
   useCacheChk.addEventListener('change', () => {

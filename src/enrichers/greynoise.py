@@ -12,12 +12,11 @@ def enrich(ioc: IOC, keys: dict | None = None) -> EnrichmentResult:
     if ioc.type != "ip":
         return EnrichmentResult(source="GreyNoise", ioc=ioc, error="IP only")
     api_key = keys.get("GREYNOISE_API_KEY", "") if keys is not None else os.getenv("GREYNOISE_API_KEY", "")
-    if not api_key:
-        return EnrichmentResult(source="GreyNoise", ioc=ioc, error="GREYNOISE_API_KEY not set")
+    headers = {"key": api_key} if api_key else {}
     try:
         resp = httpx.get(
             f"{_BASE_URL}/{ioc.value}",
-            headers={"key": api_key},
+            headers=headers,
             timeout=_TIMEOUT,
         )
         if resp.status_code == 404:

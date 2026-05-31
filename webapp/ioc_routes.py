@@ -3,7 +3,7 @@ import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Blueprint, render_template, redirect, url_for, flash, request, abort, send_file, jsonify
 from flask_login import login_required, current_user
 from sqlalchemy import func as sqlfunc
@@ -252,7 +252,8 @@ def _compute_score_breakdown(raw_results: list[dict]) -> dict:
     return breakdown
 
 
-def _enrich_ioc(value: str, keys: dict | None = None, generate_ai: bool = True) -> tuple[str, list[dict], str | None, int, dict, str | None]:
+def _enrich_ioc(value: str, keys: dict | None = None, generate_ai: bool = True,
+                level: str = "standard") -> tuple[str, list[dict], str | None, int, dict, str | None]:
     """Return (ioc_type, raw, paragraph, threat_score, score_breakdown, malware_family)."""
     iocs, _ = parse_iocs([value])
     if not iocs:
@@ -286,7 +287,7 @@ def _enrich_ioc(value: str, keys: dict | None = None, generate_ai: bool = True) 
 
     groq_key = keys.get("GROQ_API_KEY", "") if keys is not None else os.getenv("GROQ_API_KEY", "")
     if generate_ai and groq_key:
-        synthesis = groq_synthesizer.synthesize_full(result_objects, threat_score, groq_key=groq_key)
+        synthesis = groq_synthesizer.synthesize_full(result_objects, threat_score, groq_key=groq_key, level=level)
         paragraph = synthesis["paragraph"]
         malware_family = synthesis["malware_family"]
     else:
@@ -296,17 +297,33 @@ def _enrich_ioc(value: str, keys: dict | None = None, generate_ai: bool = True) 
     return ioc.type, raw, paragraph, threat_score, score_breakdown, malware_family
 
 
+def _purge_stale_iocs() -> int:
+    from webapp.models import STALE_DAYS
+    cutoff = datetime.utcnow() - timedelta(days=STALE_DAYS)
+    stale = IOCRecord.query.filter(IOCRecord.enriched_at < cutoff).all()
+    count = len(stale)
+    for record in stale:
+        db.session.delete(record)
+    if count:
+        db.session.commit()
+        logger.info("Purged %d stale IOC(s) older than %d days", count, STALE_DAYS)
+    return count
+
+
 @ioc_bp.route("/")
 def index():
+    _purge_stale_iocs()
+    is_visitor    = not current_user.is_authenticated
     q             = request.args.get("q", "").strip()
     filt          = request.args.get("filter", "all")   # all | malicious | suspect | legitimate
     sort          = request.args.get("sort", "score")   # score | date | views
     type_filter   = request.args.get("type", "all")     # all | ip | domain | hash
     family_filter = request.args.get("family", "").strip()
-    tlp_filter    = request.args.get("tlp", "").strip().upper()
     tag_filter    = request.args.get("tag", "").strip()
 
     query = IOCRecord.query
+    if is_visitor:
+        query = query.filter(IOCRecord.tags_json.ilike('%"demo"%'))
     if q:
         query = query.filter(IOCRecord.value.ilike(f"%{q}%"))
     if filt == "malicious":
@@ -319,8 +336,6 @@ def index():
         query = query.filter(IOCRecord.ioc_type == type_filter)
     if family_filter:
         query = query.filter(IOCRecord.malware_family.ilike(f"%{family_filter}%"))
-    if tlp_filter in ("RED", "AMBER", "GREEN", "WHITE"):
-        query = query.filter(IOCRecord.tlp == tlp_filter)
     if tag_filter:
         query = query.filter(IOCRecord.tags_json.ilike(f'%"{tag_filter}"%'))
 
@@ -333,15 +348,17 @@ def index():
 
     records = query.limit(100).all()
 
+    _cnt_base = IOCRecord.query.filter(IOCRecord.tags_json.ilike('%"demo"%')) \
+        if is_visitor else IOCRecord.query
     counts = {
-        "all":       IOCRecord.query.count(),
-        "malicious": IOCRecord.query.filter(IOCRecord.threat_score > 30).count(),
-        "suspect":   IOCRecord.query.filter(
+        "all":       _cnt_base.count(),
+        "malicious": _cnt_base.filter(IOCRecord.threat_score > 30).count(),
+        "suspect":   _cnt_base.filter(
                          IOCRecord.threat_score > 0, IOCRecord.threat_score <= 30).count(),
-        "legitimate":IOCRecord.query.filter(IOCRecord.threat_score == 0).count(),
-        "ip":        IOCRecord.query.filter_by(ioc_type="ip").count(),
-        "domain":    IOCRecord.query.filter_by(ioc_type="domain").count(),
-        "hash":      IOCRecord.query.filter_by(ioc_type="hash").count(),
+        "legitimate":_cnt_base.filter(IOCRecord.threat_score == 0).count(),
+        "ip":        _cnt_base.filter(IOCRecord.ioc_type == "ip").count(),
+        "domain":    _cnt_base.filter(IOCRecord.ioc_type == "domain").count(),
+        "hash":      _cnt_base.filter(IOCRecord.ioc_type == "hash").count(),
     }
 
     # Top families
@@ -356,17 +373,6 @@ def index():
     families_top         = family_rows[:4]
     families_other_count = max(0, len(family_rows) - 4)
 
-    # TLP counts
-    tlp_raw = (
-        db.session.query(IOCRecord.tlp, sqlfunc.count(IOCRecord.id).label("n"))
-        .group_by(IOCRecord.tlp)
-        .all()
-    )
-    tlp_counts: dict[str, int] = {}
-    for row in tlp_raw:
-        key = (row.tlp or "WHITE").upper()
-        tlp_counts[key] = tlp_counts.get(key, 0) + (row.n or 0)
-
     # Tag frequency (aggregated from JSON blobs)
     tag_freq: dict[str, int] = {}
     for r in IOCRecord.query.filter(IOCRecord.tags_json.isnot(None)).all():
@@ -380,23 +386,101 @@ def index():
         "index.html",
         records=records, q=q, filt=filt, sort=sort,
         counts=counts, type_filter=type_filter,
-        family_filter=family_filter, tlp_filter=tlp_filter, tag_filter=tag_filter,
+        family_filter=family_filter, tag_filter=tag_filter,
         families_top=families_top, families_other_count=families_other_count,
-        tlp_counts=tlp_counts, tags_shown=tags_shown, tags_extra=tags_extra,
+        tags_shown=tags_shown, tags_extra=tags_extra,
+        is_visitor=is_visitor,
     )
 
 
+def _user_groq_key() -> str:
+    """Resolve the Groq key for the current user (admin → .env, analyst → own)."""
+    if current_user.is_admin:
+        return os.getenv("GROQ_API_KEY", "")
+    return current_user.get_api_keys().get("GROQ_API_KEY", "")
+
+
 @ioc_bp.route("/ioc/<path:value>")
-@login_required
 def detail(value: str):
-    if not current_user.is_approved:
+    is_visitor = not current_user.is_authenticated
+
+    if current_user.is_authenticated and not current_user.is_approved:
         abort(403)
+
     record = IOCRecord.query.filter_by(value=value).first_or_404()
+
+    if is_visitor and "demo" not in record.get_tags():
+        flash("Connectez-vous pour accéder à cet IOC.", "warning")
+        return redirect(url_for("auth.login", next=request.path))
+
     record.view_count = (record.view_count or 0) + 1
     db.session.commit()
     results = record.get_results()
     summary = _build_summary(results, record.ioc_type, record.value)
-    return render_template("ioc_detail.html", record=record, results=results, summary=summary)
+
+    paragraphs = record.get_paragraphs()
+    active_level = request.args.get("level", "")
+    if active_level not in paragraphs:
+        active_level = "standard" if "standard" in paragraphs else next(iter(paragraphs), "")
+
+    if is_visitor:
+        has_groq = False
+    elif current_user.is_admin:
+        has_groq = bool(os.getenv("GROQ_API_KEY"))
+    else:
+        has_groq = bool(current_user.groq_key_enc)
+
+    return render_template(
+        "ioc_detail.html", record=record, results=results, summary=summary,
+        paragraphs=paragraphs, active_level=active_level, has_groq=has_groq,
+        is_visitor=is_visitor,
+    )
+
+
+@ioc_bp.route("/ioc/<path:value>/analyze", methods=["POST"])
+@login_required
+def generate_analysis(value: str):
+    """Generate one analysis level from already-stored raw_results — Groq only, no enricher calls."""
+    if not current_user.is_approved:
+        abort(403)
+    record = IOCRecord.query.filter_by(value=value).first_or_404()
+
+    level = request.form.get("level", "standard")
+    if level not in ("brief", "standard", "detailed"):
+        flash("Niveau d'analyse invalide.", "danger")
+        return redirect(url_for("ioc.detail", value=value))
+
+    groq_key = _user_groq_key()
+    if not groq_key:
+        flash("Aucune clé Groq configurée — impossible de générer l'analyse IA.", "warning")
+        return redirect(url_for("ioc.detail", value=value))
+
+    raw = record.get_results()
+    if not raw:
+        flash("Aucune donnée d'enrichissement à analyser.", "danger")
+        return redirect(url_for("ioc.detail", value=value))
+
+    from src.models import IOC, EnrichmentResult
+    ioc_obj = IOC(value=record.value, type=record.ioc_type)
+    result_objects = [
+        EnrichmentResult(source=r["source"], ioc=ioc_obj,
+                         data=r.get("data") or {}, error=r.get("error"))
+        for r in raw
+    ]
+
+    paragraph = groq_synthesizer.synthesize(
+        result_objects, threat_score=record.threat_score or 0,
+        groq_key=groq_key, level=level,
+    )
+    if not paragraph:
+        flash("La génération de l'analyse a échoué — réessayez dans un instant.", "danger")
+        return redirect(url_for("ioc.detail", value=value))
+
+    record.set_paragraph_level(level, paragraph)
+    db.session.commit()
+    _LEVEL_LABELS = {"brief": "Bref", "standard": "Standard", "detailed": "Détaillé"}
+    flash(f"Analyse « {_LEVEL_LABELS[level]} » générée.", "success")
+    return redirect(url_for("ioc.detail", value=value, level=level))
 
 
 @ioc_bp.route("/enrich", methods=["GET", "POST"])
@@ -414,11 +498,10 @@ def enrich():
 
         force       = request.form.get("force") == "1"
         generate_ai = request.form.get("generate_ai") == "1"
+        level       = request.form.get("analysis_level", "standard")
+        if level not in ("brief", "standard", "detailed"):
+            level = "standard"
         keys        = current_user.get_api_keys() if not current_user.is_admin else None
-
-        default_tlp = request.form.get("default_tlp", "WHITE").upper()
-        if default_tlp not in ("RED", "AMBER", "GREEN", "WHITE"):
-            default_tlp = "WHITE"
 
         import json as _json
         try:
@@ -466,7 +549,7 @@ def enrich():
                 )
 
             existing = IOCRecord.query.filter_by(value=value).first()
-            if existing and not force and not existing.is_stale:
+            if existing and not force:
                 flash(
                     f"IOC déjà en base (enrichi il y a {existing.age_days} jour(s)). "
                     "Résultat affiché depuis le cache.",
@@ -475,7 +558,7 @@ def enrich():
                 return redirect(url_for("ioc.detail", value=value))
 
             try:
-                ioc_type, raw, paragraph, threat_score, score_breakdown, malware_family = _enrich_ioc(value, keys=keys, generate_ai=generate_ai)
+                ioc_type, raw, paragraph, threat_score, score_breakdown, malware_family = _enrich_ioc(value, keys=keys, generate_ai=generate_ai, level=level)
             except ValueError as exc:
                 flash(str(exc), "danger")
                 return render_template("enrich.html", prefill=value, max_batch=_MAX_BATCH)
@@ -497,8 +580,7 @@ def enrich():
                 existing.enriched_at = datetime.utcnow()
                 existing.enriched_by = current_user.email
                 existing.set_results(raw)
-                if paragraph is not None:
-                    existing.paragraph = paragraph
+                existing.set_paragraph_level(level, paragraph)
                 existing.threat_score = threat_score
                 existing.malware_family = malware_family
                 existing.verdict = "malicious" if threat_score > 0 else "clean"
@@ -507,12 +589,12 @@ def enrich():
                 record = IOCRecord(
                     value=value, ioc_type=ioc_type,
                     enriched_by=current_user.email,
-                    paragraph=paragraph, threat_score=threat_score,
+                    threat_score=threat_score,
                     malware_family=malware_family,
                     verdict="malicious" if threat_score > 0 else "clean",
-                    tlp=default_tlp,
                 )
                 record.set_results(raw)
+                record.set_paragraph_level(level, paragraph)
                 record.set_score_breakdown(score_breakdown)
                 if default_tags:
                     record.set_tags(default_tags)
@@ -545,14 +627,14 @@ def enrich():
                 continue
 
             existing = IOCRecord.query.filter_by(value=value).first()
-            if existing and not force and not existing.is_stale:
+            if existing and not force:
                 entry["status"] = "cached"
                 entry["threat_score"] = existing.threat_score
                 bulk_results.append(entry)
                 continue
 
             try:
-                ioc_type, raw_res, paragraph, threat_score, score_breakdown, malware_family = _enrich_ioc(value, keys=keys, generate_ai=generate_ai)
+                ioc_type, raw_res, paragraph, threat_score, score_breakdown, malware_family = _enrich_ioc(value, keys=keys, generate_ai=generate_ai, level=level)
             except Exception as exc:
                 logger.error("Bulk enrichment error for %r: %s", value, exc)
                 entry["message"] = "Erreur d'enrichissement"
@@ -570,8 +652,7 @@ def enrich():
                 existing.enriched_at = now
                 existing.enriched_by = current_user.email
                 existing.set_results(raw_res)
-                if paragraph is not None:
-                    existing.paragraph = paragraph
+                existing.set_paragraph_level(level, paragraph)
                 existing.threat_score = threat_score
                 existing.malware_family = malware_family
                 existing.verdict = "malicious" if threat_score > 0 else "clean"
@@ -581,12 +662,12 @@ def enrich():
                 record = IOCRecord(
                     value=value, ioc_type=ioc_type,
                     enriched_by=current_user.email,
-                    paragraph=paragraph, threat_score=threat_score,
+                    threat_score=threat_score,
                     malware_family=malware_family,
                     verdict="malicious" if threat_score > 0 else "clean",
-                    tlp=default_tlp,
                 )
                 record.set_results(raw_res)
+                record.set_paragraph_level(level, paragraph)
                 record.set_score_breakdown(score_breakdown)
                 if default_tags:
                     record.set_tags(default_tags)
@@ -738,8 +819,8 @@ def export_markdown():
         "",
         f"Exporté le {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC — {len(records)} IOCs",
         "",
-        "| Valeur | Type | Score | Verdict | TLP | Famille | Enrichi le |",
-        "|--------|------|------:|---------|-----|---------|------------|",
+        "| Valeur | Type | Score | Verdict | Famille | Enrichi le |",
+        "|--------|------|------:|---------|---------|------------|",
     ]
     for r in records:
         if (r.threat_score or 0) > 30:
@@ -750,7 +831,7 @@ def export_markdown():
             verdict = "Légitime"
         lines.append(
             f"| `{r.value}` | {r.ioc_type} | {r.threat_score or 0} | {verdict} "
-            f"| TLP:{r.tlp or 'WHITE'} | {r.malware_family or '—'} "
+            f"| {r.malware_family or '—'} "
             f"| {r.enriched_at.strftime('%Y-%m-%d')} |"
         )
 
@@ -762,22 +843,6 @@ def export_markdown():
         as_attachment=True,
         mimetype="text/markdown; charset=utf-8",
     )
-
-
-@ioc_bp.route("/ioc/<path:value>/tlp", methods=["POST"])
-@login_required
-def set_tlp(value: str):
-    if not current_user.is_approved:
-        abort(403)
-    record = IOCRecord.query.filter_by(value=value).first_or_404()
-    tlp = request.form.get("tlp", "WHITE").upper()
-    if tlp not in ("RED", "AMBER", "GREEN", "WHITE"):
-        flash("Valeur TLP invalide.", "danger")
-    else:
-        record.tlp = tlp
-        db.session.commit()
-        flash(f"TLP mis à jour : TLP:{tlp}", "success")
-    return redirect(url_for("ioc.detail", value=value))
 
 
 @ioc_bp.route("/ioc/<path:value>/tags", methods=["POST"])
